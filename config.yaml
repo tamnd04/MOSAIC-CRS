@@ -1,0 +1,201 @@
+# Multi-Objective CRS Configuration
+
+# Model Architecture
+model:
+  # Dialogue State Tracker
+  dialogue_state_tracker:
+    bert_model: "bert-base-uncased"
+    hidden_dim: 256
+    num_intents: 10
+    num_slots: 15
+    num_layers: 2
+    context_encoder_layers: 2
+    dropout: 0.3
+    state_dim: 512
+    freeze_bert: false
+  
+  # Personalization Engine
+  personalization:
+    hidden_dim: 256
+    profile_dim: 128
+    static_features_dim: 64
+    item_embedding_dim: 128
+    user_embedding_dim: 128
+    attention_heads: 4
+    dropout: 0.3
+  
+  # Policy Network
+  policy:
+    state_dim: 1024
+    action_dim: 50
+    hidden_dim: 512
+    num_objectives: 4
+    dropout: 0.3
+    objective_weights:
+      accuracy: 0.4
+      diversity: 0.25
+      fairness: 0.2
+      engagement: 0.15
+    
+  # Diversity & Fairness Controller
+  diversity_fairness:
+    hidden_dim: 256
+    lambda_mmr: 0.7
+    diversity_window: 10
+    min_diversity: 0.3
+    min_fairness: 0.7
+    item_embedding_dim: 128
+    user_embedding_dim: 128
+    fairness_thresholds:
+      demographic_parity: 0.1
+      equal_opportunity: 0.1
+      calibration: 0.15
+      exposure: 0.6
+      provider: 0.6
+  
+  # Explanation Generator
+  explanation_generator:
+    vocab_size: 10000
+    embedding_dim: 256
+    hidden_dim: 256
+    context_dim: 640  # state_dim (512) + profile_dim (128)
+    num_explanation_types: 5
+    max_length: 50
+    generation_mode: "template"  # "template", "neural", or "hybrid"
+
+# Training Configuration
+training:
+  # General
+  num_epochs: 3  # Number of supervised pre-training epochs
+  save_frequency: 1  # Save checkpoint every N epochs
+  num_episodes: 10000
+  num_envs: 4  # Number of parallel RL environments
+  max_turns_per_episode: 20
+  batch_size: 64
+  learning_rate: 0.0003  # 3e-4
+  value_lr: 0.001  # 1e-3
+  
+  # PPO Hyperparameters
+  ppo:
+    epochs: 4
+    clip_epsilon: 0.2
+    gamma: 0.99
+    lambda_gae: 0.95
+    max_grad_norm: 0.5
+    entropy_coef: 0.01
+    value_loss_coef: 0.5
+  
+  # Exploration
+  epsilon_start: 0.3
+  epsilon_end: 0.05
+  epsilon_decay: 0.995
+  
+  # Replay Buffer
+  buffer_size: 50000
+  min_buffer_size: 1000
+  
+  # Pre-training
+  behavioral_cloning:
+    enabled: true
+    epochs: 20
+    learning_rate: 0.001  # 1e-3
+  
+  # Training Schedule
+  eval_interval: 100
+  save_interval: 500
+  log_interval: 10
+
+  # RL Fine-tuning (realistic setup)
+  rl:
+    use_full_dataset: true
+    max_conversations: 10000
+    candidate_pool_size: 100
+    top_k_recommendations: 10
+    rollout_horizon: 20
+    ppo_minibatch_size: 256
+    updates_per_rollout: 4
+    normalize_advantages: true
+    constraint_aware:
+      enabled: true
+      penalty_coef: 0.15
+    reward_weights:
+      accuracy: 0.40
+      diversity: 0.25
+      fairness: 0.20
+      engagement: 0.15
+
+# Data Configuration
+data:
+  dataset_name: "redial"  # "redial", "gorecDial", or "inspired"
+  data_dir: "./data"
+  processed_dir: "./data/processed"
+  train_file: "./data/train_data.json"
+  val_file: "./data/val_data.json"
+  test_file: "./data/test_data.json"
+  full_data_file: "./data/train_data.json"
+  stronger_validation:
+    enabled: true
+    val_ratio: 0.15
+    test_ratio: 0.15
+    stratify_by: "demographic_success"
+    min_group_samples: 5
+  
+  # Preprocessing
+  max_dialogue_length: 20
+  max_utterance_length: 128
+  min_item_interactions: 5
+  
+  # Splits
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+  
+  # Item Catalog
+  catalog_file: "./data/item_catalog.json"
+  item_features_dim: 128
+  num_items: 6924  # ReDial has 6924 movies
+
+# Evaluation Configuration
+evaluation:
+  metrics:
+    - "success_rate"
+    - "average_turns"
+    - "precision_at_k"
+    - "recall_at_k"
+    - "ndcg"
+    - "diversity_ild"
+    - "diversity_coverage"
+    - "fairness_demographic_parity"
+    - "fairness_exposure_gini"
+    - "user_satisfaction"
+  
+  k_values: [1, 5, 10]
+  num_eval_episodes: 100
+  
+# Environment Configuration
+environment:
+  max_turns: 20
+  reward_success: 10.0
+  reward_reject: -5.0
+  reward_per_turn: -1.0
+  reward_diversity_factor: 5.0
+  reward_fairness_factor: 5.0
+  reward_engagement_factor: 5.0
+
+# Logging Configuration
+logging:
+  log_dir: "./logs"
+  experiment_name: "mocrs_baseline"
+  use_wandb: true
+  wandb_project: "mocrs-thesis"
+  save_dir: "./checkpoints"
+  
+# Hardware Configuration
+hardware:
+  device: "cuda"  # "cuda" or "cpu"
+  gpu_id: 0
+  num_workers: 4
+  pin_memory: true
+
+# Random Seeds
+seed: 42

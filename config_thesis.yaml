@@ -1,0 +1,182 @@
+# Thesis-grade training profile for MO-CRS
+# Use with: python train.py --mode both --config ../config_thesis.yaml --refresh_splits
+
+model:
+  dialogue_state_tracker:
+    bert_model: "bert-base-uncased"
+    hidden_dim: 256
+    num_intents: 10
+    num_slots: 15
+    num_layers: 2
+    context_encoder_layers: 2
+    dropout: 0.3
+    state_dim: 512
+    freeze_bert: false
+
+  personalization:
+    hidden_dim: 256
+    profile_dim: 128
+    static_features_dim: 64
+    item_embedding_dim: 128
+    user_embedding_dim: 128
+    attention_heads: 4
+    dropout: 0.3
+
+  policy:
+    state_dim: 1024
+    action_dim: 50
+    hidden_dim: 512
+    num_objectives: 4
+    dropout: 0.3
+    objective_weights:
+      accuracy: 0.40
+      diversity: 0.25
+      fairness: 0.20
+      engagement: 0.15
+
+  diversity_fairness:
+    hidden_dim: 256
+    lambda_mmr: 0.7
+    diversity_window: 20
+    min_diversity: 0.35
+    min_fairness: 0.75
+    item_embedding_dim: 128
+    user_embedding_dim: 128
+    fairness_thresholds:
+      demographic_parity: 0.10
+      equal_opportunity: 0.10
+      calibration: 0.15
+      exposure: 0.60
+      provider: 0.60
+
+  explanation_generator:
+    vocab_size: 10000
+    embedding_dim: 256
+    hidden_dim: 256
+    context_dim: 640
+    num_explanation_types: 5
+    max_length: 50
+    generation_mode: "template"
+
+training:
+  num_epochs: 5
+  save_frequency: 1
+  num_episodes: 20000
+  num_envs: 8
+  max_turns_per_episode: 20
+  batch_size: 128
+  learning_rate: 0.0002
+  value_lr: 0.0008
+
+  ppo:
+    epochs: 6
+    clip_epsilon: 0.15
+    gamma: 0.99
+    lambda_gae: 0.95
+    max_grad_norm: 0.5
+    entropy_coef: 0.005
+    value_loss_coef: 0.5
+
+  epsilon_start: 0.2
+  epsilon_end: 0.02
+  epsilon_decay: 0.997
+
+  buffer_size: 100000
+  min_buffer_size: 5000
+
+  behavioral_cloning:
+    enabled: true
+    epochs: 30
+    learning_rate: 0.0005
+
+  eval_interval: 100
+  save_interval: 500
+  log_interval: 10
+
+  rl:
+    use_full_dataset: true
+    max_conversations: 10000
+    candidate_pool_size: 300
+    top_k_recommendations: 10
+    rollout_horizon: 20
+    ppo_minibatch_size: 1024
+    updates_per_rollout: 8
+    normalize_advantages: true
+    eval_interval_episodes: 50
+    constraint_aware:
+      enabled: true
+      penalty_coef: 0.20
+    reward_weights:
+      accuracy: 0.40
+      diversity: 0.25
+      fairness: 0.20
+      engagement: 0.15
+
+data:
+  dataset_name: "redial"
+  data_dir: "./data"
+  processed_dir: "./data/processed"
+  train_file: "./data/train_data.json"
+  val_file: "./data/val_data.json"
+  test_file: "./data/test_data.json"
+  full_data_file: "./data/train_data.json"
+
+  max_dialogue_length: 20
+  max_utterance_length: 128
+  min_item_interactions: 5
+
+  train_ratio: 0.70
+  val_ratio: 0.15
+  test_ratio: 0.15
+
+  stronger_validation:
+    enabled: true
+    val_ratio: 0.15
+    test_ratio: 0.15
+    stratify_by: "demographic_success"
+    min_group_samples: 5
+
+  catalog_file: "./data/item_catalog.json"
+  item_features_dim: 128
+  num_items: 6924
+
+evaluation:
+  metrics:
+    - "success_rate"
+    - "average_turns"
+    - "precision_at_k"
+    - "recall_at_k"
+    - "ndcg"
+    - "diversity_ild"
+    - "diversity_coverage"
+    - "fairness_demographic_parity"
+    - "fairness_exposure_gini"
+    - "user_satisfaction"
+
+  k_values: [1, 5, 10]
+  num_eval_episodes: 300
+  ips_clip_c: 10.0
+
+environment:
+  max_turns: 20
+  reward_success: 10.0
+  reward_reject: -5.0
+  reward_per_turn: -1.0
+  reward_diversity_factor: 5.0
+  reward_fairness_factor: 5.0
+  reward_engagement_factor: 5.0
+
+logging:
+  log_dir: "./logs"
+  experiment_name: "mocrs_thesis_profile"
+  use_wandb: true
+  wandb_project: "mocrs-thesis"
+  save_dir: "./checkpoints"
+
+hardware:
+  device: "cuda"
+  gpu_id: 0
+  num_workers: 4
+  pin_memory: true
+
+seed: 42

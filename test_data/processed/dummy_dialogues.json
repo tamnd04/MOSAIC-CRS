@@ -1,0 +1,988 @@
+{
+  "dialogues": [
+    {
+      "dialogue_id": "dialogue_0",
+      "turns": [
+        {
+          "utterance": "I like action movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 0?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_0"
+          ]
+        }
+      ],
+      "user_id": "user_0",
+      "accepted_items": [
+        "item_0"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_1",
+      "turns": [
+        {
+          "utterance": "I like comedy movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 1?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_1"
+          ]
+        }
+      ],
+      "user_id": "user_1",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_2",
+      "turns": [
+        {
+          "utterance": "I like drama movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 2?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_2"
+          ]
+        }
+      ],
+      "user_id": "user_2",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_3",
+      "turns": [
+        {
+          "utterance": "I like sci-fi movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 3?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_3"
+          ]
+        }
+      ],
+      "user_id": "user_3",
+      "accepted_items": [
+        "item_3"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_4",
+      "turns": [
+        {
+          "utterance": "I like romance movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 4?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_4"
+          ]
+        }
+      ],
+      "user_id": "user_4",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_5",
+      "turns": [
+        {
+          "utterance": "I like thriller movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 5?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_5"
+          ]
+        }
+      ],
+      "user_id": "user_5",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_6",
+      "turns": [
+        {
+          "utterance": "I like horror movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 6?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_6"
+          ]
+        }
+      ],
+      "user_id": "user_6",
+      "accepted_items": [
+        "item_6"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_7",
+      "turns": [
+        {
+          "utterance": "I like documentary movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 7?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_7"
+          ]
+        }
+      ],
+      "user_id": "user_7",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_8",
+      "turns": [
+        {
+          "utterance": "I like action movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 8?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_8"
+          ]
+        }
+      ],
+      "user_id": "user_8",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_9",
+      "turns": [
+        {
+          "utterance": "I like comedy movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 9?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_9"
+          ]
+        }
+      ],
+      "user_id": "user_9",
+      "accepted_items": [
+        "item_9"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_10",
+      "turns": [
+        {
+          "utterance": "I like drama movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 10?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_10"
+          ]
+        }
+      ],
+      "user_id": "user_10",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_11",
+      "turns": [
+        {
+          "utterance": "I like sci-fi movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 11?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_11"
+          ]
+        }
+      ],
+      "user_id": "user_11",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_12",
+      "turns": [
+        {
+          "utterance": "I like romance movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 12?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_12"
+          ]
+        }
+      ],
+      "user_id": "user_12",
+      "accepted_items": [
+        "item_12"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_13",
+      "turns": [
+        {
+          "utterance": "I like thriller movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 13?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_13"
+          ]
+        }
+      ],
+      "user_id": "user_13",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_14",
+      "turns": [
+        {
+          "utterance": "I like horror movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 14?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_14"
+          ]
+        }
+      ],
+      "user_id": "user_14",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_15",
+      "turns": [
+        {
+          "utterance": "I like documentary movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 15?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_15"
+          ]
+        }
+      ],
+      "user_id": "user_15",
+      "accepted_items": [
+        "item_15"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_16",
+      "turns": [
+        {
+          "utterance": "I like action movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 16?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_16"
+          ]
+        }
+      ],
+      "user_id": "user_16",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_17",
+      "turns": [
+        {
+          "utterance": "I like comedy movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 17?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_17"
+          ]
+        }
+      ],
+      "user_id": "user_17",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_18",
+      "turns": [
+        {
+          "utterance": "I like drama movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 18?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_18"
+          ]
+        }
+      ],
+      "user_id": "user_18",
+      "accepted_items": [
+        "item_18"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_19",
+      "turns": [
+        {
+          "utterance": "I like sci-fi movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 19?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_19"
+          ]
+        }
+      ],
+      "user_id": "user_19",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_20",
+      "turns": [
+        {
+          "utterance": "I like romance movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 20?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_20"
+          ]
+        }
+      ],
+      "user_id": "user_0",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_21",
+      "turns": [
+        {
+          "utterance": "I like thriller movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 21?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_21"
+          ]
+        }
+      ],
+      "user_id": "user_1",
+      "accepted_items": [
+        "item_21"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_22",
+      "turns": [
+        {
+          "utterance": "I like horror movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 22?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_22"
+          ]
+        }
+      ],
+      "user_id": "user_2",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_23",
+      "turns": [
+        {
+          "utterance": "I like documentary movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 23?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_23"
+          ]
+        }
+      ],
+      "user_id": "user_3",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_24",
+      "turns": [
+        {
+          "utterance": "I like action movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 24?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_24"
+          ]
+        }
+      ],
+      "user_id": "user_4",
+      "accepted_items": [
+        "item_24"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_25",
+      "turns": [
+        {
+          "utterance": "I like comedy movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 25?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_25"
+          ]
+        }
+      ],
+      "user_id": "user_5",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_26",
+      "turns": [
+        {
+          "utterance": "I like drama movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 26?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_26"
+          ]
+        }
+      ],
+      "user_id": "user_6",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_27",
+      "turns": [
+        {
+          "utterance": "I like sci-fi movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 27?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_27"
+          ]
+        }
+      ],
+      "user_id": "user_7",
+      "accepted_items": [
+        "item_27"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_28",
+      "turns": [
+        {
+          "utterance": "I like romance movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 28?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_28"
+          ]
+        }
+      ],
+      "user_id": "user_8",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_29",
+      "turns": [
+        {
+          "utterance": "I like thriller movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 29?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_29"
+          ]
+        }
+      ],
+      "user_id": "user_9",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_30",
+      "turns": [
+        {
+          "utterance": "I like horror movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 30?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_30"
+          ]
+        }
+      ],
+      "user_id": "user_10",
+      "accepted_items": [
+        "item_30"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_31",
+      "turns": [
+        {
+          "utterance": "I like documentary movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 31?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_31"
+          ]
+        }
+      ],
+      "user_id": "user_11",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_32",
+      "turns": [
+        {
+          "utterance": "I like action movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 32?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_32"
+          ]
+        }
+      ],
+      "user_id": "user_12",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_33",
+      "turns": [
+        {
+          "utterance": "I like comedy movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 33?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_33"
+          ]
+        }
+      ],
+      "user_id": "user_13",
+      "accepted_items": [
+        "item_33"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_34",
+      "turns": [
+        {
+          "utterance": "I like drama movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 34?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_34"
+          ]
+        }
+      ],
+      "user_id": "user_14",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_35",
+      "turns": [
+        {
+          "utterance": "I like sci-fi movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 35?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_35"
+          ]
+        }
+      ],
+      "user_id": "user_15",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_36",
+      "turns": [
+        {
+          "utterance": "I like romance movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 36?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_36"
+          ]
+        }
+      ],
+      "user_id": "user_16",
+      "accepted_items": [
+        "item_36"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_37",
+      "turns": [
+        {
+          "utterance": "I like thriller movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 37?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_37"
+          ]
+        }
+      ],
+      "user_id": "user_17",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_38",
+      "turns": [
+        {
+          "utterance": "I like horror movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 38?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_38"
+          ]
+        }
+      ],
+      "user_id": "user_18",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_39",
+      "turns": [
+        {
+          "utterance": "I like documentary movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 39?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_39"
+          ]
+        }
+      ],
+      "user_id": "user_19",
+      "accepted_items": [
+        "item_39"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_40",
+      "turns": [
+        {
+          "utterance": "I like action movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 40?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_40"
+          ]
+        }
+      ],
+      "user_id": "user_0",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_41",
+      "turns": [
+        {
+          "utterance": "I like comedy movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 41?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_41"
+          ]
+        }
+      ],
+      "user_id": "user_1",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_42",
+      "turns": [
+        {
+          "utterance": "I like drama movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 42?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_42"
+          ]
+        }
+      ],
+      "user_id": "user_2",
+      "accepted_items": [
+        "item_42"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_43",
+      "turns": [
+        {
+          "utterance": "I like sci-fi movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 43?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_43"
+          ]
+        }
+      ],
+      "user_id": "user_3",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_44",
+      "turns": [
+        {
+          "utterance": "I like romance movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 44?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_44"
+          ]
+        }
+      ],
+      "user_id": "user_4",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_45",
+      "turns": [
+        {
+          "utterance": "I like thriller movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 45?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_45"
+          ]
+        }
+      ],
+      "user_id": "user_5",
+      "accepted_items": [
+        "item_45"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_46",
+      "turns": [
+        {
+          "utterance": "I like horror movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 46?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_46"
+          ]
+        }
+      ],
+      "user_id": "user_6",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_47",
+      "turns": [
+        {
+          "utterance": "I like documentary movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 47?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_47"
+          ]
+        }
+      ],
+      "user_id": "user_7",
+      "accepted_items": []
+    },
+    {
+      "dialogue_id": "dialogue_48",
+      "turns": [
+        {
+          "utterance": "I like action movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 48?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_48"
+          ]
+        }
+      ],
+      "user_id": "user_8",
+      "accepted_items": [
+        "item_48"
+      ]
+    },
+    {
+      "dialogue_id": "dialogue_49",
+      "turns": [
+        {
+          "utterance": "I like comedy movies",
+          "intent": "provide_preference",
+          "items_mentioned": []
+        },
+        {
+          "utterance": "How about Movie 49?",
+          "intent": "recommend",
+          "items_mentioned": [
+            "item_49"
+          ]
+        }
+      ],
+      "user_id": "user_9",
+      "accepted_items": []
+    }
+  ]
+}
