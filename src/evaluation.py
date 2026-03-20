@@ -12,6 +12,29 @@ from scipy.stats import entropy
 import json
 
 
+def _bootstrap_mean_ci(values: List[float], rng: np.random.RandomState,
+                       n_bootstrap: int = 1000, alpha: float = 0.05) -> Tuple[float, float]:
+    """Percentile bootstrap confidence interval for the sample mean."""
+    arr = np.asarray(values, dtype=np.float64)
+    if arr.size == 0:
+        return 0.0, 0.0
+    if arr.size == 1:
+        v = float(arr[0])
+        return v, v
+
+    n_bootstrap = max(100, int(n_bootstrap))
+    means = np.empty(n_bootstrap, dtype=np.float64)
+    n = arr.size
+
+    for i in range(n_bootstrap):
+        sample = arr[rng.randint(0, n, size=n)]
+        means[i] = sample.mean()
+
+    lower = float(np.quantile(means, alpha / 2.0))
+    upper = float(np.quantile(means, 1.0 - alpha / 2.0))
+    return lower, upper
+
+
 def _load_conversations_for_eval(path: str) -> List[Dict]:
     with open(path, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -27,11 +50,13 @@ def _load_conversations_for_eval(path: str) -> List[Dict]:
 
 
 def _extract_logged_action_and_reward(conversation: Dict) -> Tuple[int, float]:
-    """Extract logged action and reward proxy from conversation-level supervision."""
+    """Extract logged action and stronger acceptance/relevance reward signal."""
     turns = conversation.get('turns', []) if isinstance(conversation, dict) else []
     accepted_items = set(str(x) for x in conversation.get('accepted_items', []) if x is not None)
     mentioned_items = []
     has_recommend = False
+    recommend_turns = 0
+    preference_turns = 0
 
     for turn in turns:
         if not isinstance(turn, dict):
@@ -39,6 +64,9 @@ def _extract_logged_action_and_reward(conversation: Dict) -> Tuple[int, float]:
         intent = str(turn.get('intent', '')).lower()
         if 'recommend' in intent or 'suggest' in intent:
             has_recommend = True
+            recommend_turns += 1
+        if 'prefer' in intent:
+            preference_turns += 1
         for key in ['items_mentioned', 'mentioned_items', 'recommended_items']:
             values = turn.get(key, [])
             if isinstance(values, list):
@@ -54,17 +82,36 @@ def _extract_logged_action_and_reward(conversation: Dict) -> Tuple[int, float]:
     else:
         action = 0
 
-    # Reward proxy from accepted-item signal and mention overlap.
-    if accepted_items:
-        unique_mentioned = set(mentioned_items)
-        if unique_mentioned:
-            reward = min(1.0, len(accepted_items.intersection(unique_mentioned)) / len(unique_mentioned))
-        else:
-            reward = 0.7
-    elif has_recommend:
-        reward = 0.2
+    # Stronger logged reward signal using acceptance relevance and interaction quality.
+    unique_mentioned = set(mentioned_items)
+    overlap = accepted_items.intersection(unique_mentioned)
+    overlap_count = len(overlap)
+
+    mention_precision = overlap_count / max(len(unique_mentioned), 1)
+    acceptance_recall = overlap_count / max(len(accepted_items), 1) if accepted_items else 0.0
+    if mention_precision + acceptance_recall > 0:
+        relevance_f1 = (2.0 * mention_precision * acceptance_recall) / (mention_precision + acceptance_recall)
     else:
-        reward = 0.0
+        relevance_f1 = 0.0
+
+    accepted_count_score = min(1.0, len(accepted_items) / 4.0)
+    turn_count = max(len(turns), 1)
+    recommend_density = recommend_turns / turn_count
+    preference_density = preference_turns / turn_count
+
+    if accepted_items:
+        reward = (
+            0.55 * relevance_f1 +
+            0.25 * accepted_count_score +
+            0.10 * recommend_density +
+            0.10 * preference_density
+        )
+    elif has_recommend:
+        reward = 0.15 * recommend_density + 0.10 * preference_density
+    else:
+        reward = 0.05 * preference_density
+
+    reward = float(min(max(reward, 0.0), 1.0))
 
     return action, reward
 
@@ -148,6 +195,7 @@ def off_policy_evaluate(model, validation_file: str, item_catalog, config: Dict,
     ips_terms = []
     dr_terms = []
     dm_terms = []
+    logged_rewards = []
     behavior_actions = []
     logged_records = []
     weight_sum = 0.0
@@ -156,13 +204,18 @@ def off_policy_evaluate(model, validation_file: str, item_catalog, config: Dict,
     for conv in sampled:
         logged_action, logged_reward = _extract_logged_action_and_reward(conv)
         behavior_actions.append(logged_action)
+        logged_rewards.append(logged_reward)
         logged_records.append((conv, logged_action, logged_reward))
 
     counts = np.bincount(np.asarray(behavior_actions, dtype=np.int64), minlength=4)
     # Laplace smoothing for support coverage.
     behavior_probs = (counts + 1.0) / (counts.sum() + 4.0)
 
-    clip_c = float(config.get('evaluation', {}).get('ips_clip_c', 10.0))
+    eval_cfg = config.get('evaluation', {})
+    clip_c = float(eval_cfg.get('ips_clip_c', 10.0))
+    ci_level = float(eval_cfg.get('bootstrap_ci_level', 0.95))
+    ci_level = min(max(ci_level, 0.5), 0.999)
+    bootstrap_samples = int(eval_cfg.get('bootstrap_samples', 1000))
     topk = int(config.get('training', {}).get('rl', {}).get('top_k_recommendations', 10))
 
     with torch.no_grad():
@@ -205,12 +258,23 @@ def off_policy_evaluate(model, validation_file: str, item_catalog, config: Dict,
     snips = float(np.sum(ips_terms) / max(weight_sum, 1e-8)) if ips_terms else 0.0
     dr = float(np.mean(dr_terms)) if dr_terms else 0.0
     dm = float(np.mean(dm_terms)) if dm_terms else 0.0
+    alpha = 1.0 - ci_level
+    dr_ci_low, dr_ci_high = _bootstrap_mean_ci(dr_terms, rng, n_bootstrap=bootstrap_samples, alpha=alpha)
+    dm_ci_low, dm_ci_high = _bootstrap_mean_ci(dm_terms, rng, n_bootstrap=bootstrap_samples, alpha=alpha)
 
     return {
         'ips': ips,
         'snips': snips,
         'dr': dr,
         'dm': dm,
+        'dr_ci_low': dr_ci_low,
+        'dr_ci_high': dr_ci_high,
+        'dm_ci_low': dm_ci_low,
+        'dm_ci_high': dm_ci_high,
+        'ci_level': ci_level,
+        'bootstrap_samples': float(bootstrap_samples),
+        'logged_reward_mean': float(np.mean(logged_rewards)) if logged_rewards else 0.0,
+        'logged_reward_std': float(np.std(logged_rewards)) if logged_rewards else 0.0,
         'behavior_recommend_rate': float(behavior_probs[1]),
         'num_samples': float(len(sampled))
     }

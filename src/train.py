@@ -286,6 +286,12 @@ class MOCRSTrainer:
         ], dtype=np.float32)
 
         seen_conversations = set()
+        online_success_hist = []
+        online_turns_hist = []
+        online_diversity_hist = []
+        online_fairness_hist = []
+        div_scale = float(self.config.get('environment', {}).get('reward_diversity_factor', 1.0))
+        fair_scale = float(self.config.get('environment', {}).get('reward_fairness_factor', 1.0))
 
         for episode in range(num_episodes):
             # Assign specific training conversations to this episode.
@@ -308,6 +314,9 @@ class MOCRSTrainer:
             scalar_rewards = []
             episode_length = 0
             done = False
+            episode_diversity_values = []
+            episode_fairness_values = []
+            last_infos = []
 
             while not done and episode_length < rollout_horizon:
                 candidate_ids_batch, candidate_embeddings = self._sample_candidate_items(
@@ -333,6 +342,7 @@ class MOCRSTrainer:
 
                 next_states_np, rewards_np, dones_np, infos = env.step(env_actions)
                 next_states = torch.FloatTensor(next_states_np).to(self.device)
+                last_infos = infos
 
                 # Trajectory storage for rollout-based PPO.
                 traj_states.append(states.detach().cpu())
@@ -343,6 +353,8 @@ class MOCRSTrainer:
                 traj_dones.append(torch.FloatTensor(dones_np.astype(np.float32)))
 
                 scalar_rewards.append((rewards_np * reward_weights).sum(axis=1).mean())
+                episode_diversity_values.append(rewards_np[:, 1] / max(div_scale, 1e-8))
+                episode_fairness_values.append(rewards_np[:, 2] / max(fair_scale, 1e-8))
 
                 states = next_states
                 episode_length += 1
@@ -354,13 +366,40 @@ class MOCRSTrainer:
             else:
                 update_stats = {'policy_loss': 0.0, 'value_loss': 0.0, 'loss': 0.0, 'kl_div': 0.0, 'entropy': 0.0}
 
+            if last_infos:
+                episode_success = float(np.mean([1.0 if info.get('success', False) else 0.0 for info in last_infos]))
+                episode_turns_avg = float(np.mean([float(info.get('turn', episode_length)) for info in last_infos]))
+                diversity_from_info = []
+                for info in last_infos:
+                    div_scores = info.get('episode_stats', {}).get('diversity_scores', [])
+                    if div_scores:
+                        diversity_from_info.append(float(np.mean(div_scores)))
+                if diversity_from_info:
+                    episode_diversity = float(np.mean(diversity_from_info))
+                elif episode_diversity_values:
+                    episode_diversity = float(np.mean(np.concatenate(episode_diversity_values)))
+                else:
+                    episode_diversity = 0.0
+            else:
+                episode_success = 0.0
+                episode_turns_avg = float(episode_length)
+                episode_diversity = float(np.mean(np.concatenate(episode_diversity_values))) if episode_diversity_values else 0.0
+
+            episode_fairness = float(np.mean(np.concatenate(episode_fairness_values))) if episode_fairness_values else 0.0
+            online_success_hist.append(episode_success)
+            online_turns_hist.append(episode_turns_avg)
+            online_diversity_hist.append(episode_diversity)
+            online_fairness_hist.append(episode_fairness)
+
             if (episode + 1) % log_interval == 0:
                 print(
                     f"Episode {episode + 1}/{num_episodes}: "
                     f"Avg Reward={float(np.mean(scalar_rewards)):.3f}, "
                     f"Turns={episode_length}, "
                     f"Policy Loss={update_stats['policy_loss']:.4f}, "
-                    f"Seen Conversations={len(seen_conversations)}/{target_conversations}"
+                    f"Seen Conversations={len(seen_conversations)}/{target_conversations}, "
+                    f"Online Success={episode_success:.3f}, Online Turns={episode_turns_avg:.2f}, "
+                    f"Online Diversity={episode_diversity:.3f}, Online Fairness={episode_fairness:.3f}"
                 )
 
             if self.use_wandb and (episode + 1) % log_interval == 0:
@@ -370,7 +409,11 @@ class MOCRSTrainer:
                     'episode_length': episode_length,
                     'policy_loss': update_stats['policy_loss'],
                     'value_loss': update_stats['value_loss'],
-                    'seen_conversations': len(seen_conversations)
+                    'seen_conversations': len(seen_conversations),
+                    'online/success_rate': episode_success,
+                    'online/avg_turns': episode_turns_avg,
+                    'online/diversity': episode_diversity,
+                    'online/fairness': episode_fairness
                 })
 
             if (episode + 1) % self.config['training'].get('save_interval', 500) == 0:
@@ -379,9 +422,19 @@ class MOCRSTrainer:
             if eval_interval > 0 and (episode + 1) % eval_interval == 0 and val_file and os.path.exists(val_file):
                 ope_metrics = off_policy_evaluate(self.model, val_file, self.item_catalog, self.config, self.device)
                 dr_score = float(ope_metrics.get('dr', -float('inf')))
+                ips_val = float(ope_metrics.get('ips', 0.0))
+                snips_val = float(ope_metrics.get('snips', 0.0))
+                dm_val = float(ope_metrics.get('dm', 0.0))
+                dr_ci_low = float(ope_metrics.get('dr_ci_low', dr_score))
+                dr_ci_high = float(ope_metrics.get('dr_ci_high', dr_score))
+                dm_ci_low = float(ope_metrics.get('dm_ci_low', dm_val))
+                dm_ci_high = float(ope_metrics.get('dm_ci_high', dm_val))
+                ci_level = float(ope_metrics.get('ci_level', 0.95))
                 print(
                     f"  [Eval@{episode + 1}] DR={dr_score:.6f}, "
-                    f"IPS={ope_metrics.get('ips', 0.0):.6f}, SNIPS={ope_metrics.get('snips', 0.0):.6f}"
+                    f"IPS={ips_val:.3e}, SNIPS={snips_val:.3e}, "
+                    f"DR_CI{int(ci_level * 100)}=[{dr_ci_low:.6f}, {dr_ci_high:.6f}], "
+                    f"DM={dm_val:.6f}, DM_CI{int(ci_level * 100)}=[{dm_ci_low:.6f}, {dm_ci_high:.6f}]"
                 )
 
                 if self.use_wandb:
@@ -404,6 +457,20 @@ class MOCRSTrainer:
         
         env.close()
         print("\n[OK] RL fine-tuning completed!")
+        summary = {
+            'success_rate': float(np.mean(online_success_hist)) if online_success_hist else 0.0,
+            'avg_turns': float(np.mean(online_turns_hist)) if online_turns_hist else 0.0,
+            'diversity': float(np.mean(online_diversity_hist)) if online_diversity_hist else 0.0,
+            'fairness': float(np.mean(online_fairness_hist)) if online_fairness_hist else 0.0,
+            'num_episodes': float(len(online_success_hist))
+        }
+        print("Online simulator metrics:")
+        print(f"  success_rate: {summary['success_rate']:.6f}")
+        print(f"  avg_turns: {summary['avg_turns']:.3f}")
+        print(f"  diversity: {summary['diversity']:.6f}")
+        print(f"  fairness: {summary['fairness']:.6f}")
+        print(f"  num_episodes: {int(summary['num_episodes'])}")
+        return summary
 
     def _build_bc_batch(self, batch_convs: List[Dict]):
         """Create states and action labels for behavioral cloning from conversation turns."""
@@ -869,17 +936,48 @@ def main():
             )
 
         # RL fine-tuning
-        trainer.rl_finetune(
+        online_metrics = trainer.rl_finetune(
             num_episodes=config['training']['num_episodes']
         )
 
-        # Off-policy evaluation on held-out validation conversations.
+        if online_metrics:
+            print("Online simulator metrics (aggregate):")
+            print(f"  success_rate: {float(online_metrics.get('success_rate', 0.0)):.6f}")
+            print(f"  avg_turns: {float(online_metrics.get('avg_turns', 0.0)):.3f}")
+            print(f"  diversity: {float(online_metrics.get('diversity', 0.0)):.6f}")
+            print(f"  fairness: {float(online_metrics.get('fairness', 0.0)):.6f}")
+
+        def _print_ope(split_name: str, split_file: str):
+            if not split_file or not os.path.exists(split_file):
+                return
+            ope_metrics = off_policy_evaluate(trainer.model, split_file, trainer.item_catalog, config, trainer.device)
+            print(f"Off-policy evaluation ({split_name}):")
+            ci_level = float(ope_metrics.get('ci_level', 0.95))
+            print(f"  ips: {float(ope_metrics.get('ips', 0.0)):.3e}")
+            print(f"  snips: {float(ope_metrics.get('snips', 0.0)):.3e}")
+            print(f"  dr: {float(ope_metrics.get('dr', 0.0)):.6f}")
+            print(
+                f"  dr_ci_{int(ci_level * 100)}: "
+                f"[{float(ope_metrics.get('dr_ci_low', ope_metrics.get('dr', 0.0))):.6f}, "
+                f"{float(ope_metrics.get('dr_ci_high', ope_metrics.get('dr', 0.0))):.6f}]"
+            )
+            print(f"  dm: {float(ope_metrics.get('dm', 0.0)):.6f}")
+            print(
+                f"  dm_ci_{int(ci_level * 100)}: "
+                f"[{float(ope_metrics.get('dm_ci_low', ope_metrics.get('dm', 0.0))):.6f}, "
+                f"{float(ope_metrics.get('dm_ci_high', ope_metrics.get('dm', 0.0))):.6f}]"
+            )
+            print(f"  logged_reward_mean: {float(ope_metrics.get('logged_reward_mean', 0.0)):.6f}")
+            print(f"  logged_reward_std: {float(ope_metrics.get('logged_reward_std', 0.0)):.6f}")
+            print(f"  behavior_recommend_rate: {float(ope_metrics.get('behavior_recommend_rate', 0.0)):.6f}")
+            print(f"  num_samples: {float(ope_metrics.get('num_samples', 0.0)):.0f}")
+            print(f"  bootstrap_samples: {int(float(ope_metrics.get('bootstrap_samples', 0.0)))}")
+
+        # Off-policy evaluation on held-out validation and test conversations.
         val_file = config.get('data', {}).get('val_file')
-        if val_file and os.path.exists(val_file):
-            ope_metrics = off_policy_evaluate(trainer.model, val_file, trainer.item_catalog, config, trainer.device)
-            print("Off-policy evaluation:")
-            for key, value in ope_metrics.items():
-                print(f"  {key}: {value:.6f}")
+        test_file = config.get('data', {}).get('test_file')
+        _print_ope('validation', val_file)
+        _print_ope('test', test_file)
     
     print("\n" + "="*60)
     print("Training Complete!")
