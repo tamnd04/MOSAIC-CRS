@@ -6,7 +6,7 @@ Ensures diverse and fair recommendations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, List, Tuple, Set
+from typing import Any, Dict, List, Tuple, Set
 import numpy as np
 from collections import defaultdict
 
@@ -52,6 +52,9 @@ class DiversityFairnessController(nn.Module):
         
         # Exposure tracker
         self.exposure_tracker = ExposureTracker(config)
+
+        # Temporal diversity tracker for recency-aware penalties.
+        self.temporal_tracker = TemporalDiversityTracker(window_size=self.diversity_window)
         
         # Fairness constraints
         self.fairness_constraints = FairnessConstraints(config)
@@ -63,6 +66,7 @@ class DiversityFairnessController(nn.Module):
                candidate_scores: torch.Tensor,
                user_embedding: torch.Tensor,
                recommended_history: List[str] = None,
+               candidate_ids: List[Any] = None,
                user_demographics: Dict = None) -> Dict:
         """
         Rerank candidates for diversity and fairness
@@ -72,6 +76,7 @@ class DiversityFairnessController(nn.Module):
             candidate_scores: (num_candidates,) relevance scores
             user_embedding: (user_dim,) user representation
             recommended_history: List of previously recommended item IDs
+            candidate_ids: Candidate item IDs aligned with candidate_items rows
             user_demographics: User demographic information
             
         Returns:
@@ -93,29 +98,44 @@ class DiversityFairnessController(nn.Module):
             user_embedding,
             user_demographics
         )
+
+        if candidate_ids is None or len(candidate_ids) != num_candidates:
+            candidate_ids = list(range(num_candidates))
+
+        # ==== Temporal Diversity Penalty ====
+        temporal_penalties = self.temporal_tracker.get_penalty(
+            candidate_ids,
+            external_history=recommended_history
+        ).to(device)
         
         # ==== Exposure Balancing ====
         exposure_weights = self.exposure_tracker.get_exposure_weights(
-            range(num_candidates)  # Assuming item IDs are indices
+            candidate_ids
         ).to(device)
         
         # ==== Combined Score ====
-        # Weighted combination: relevance + diversity + fairness + exposure
-        alpha_relevance = 0.4
-        alpha_diversity = 0.3
+        # Weighted combination: relevance + diversity + fairness + exposure - temporal repetition.
+        alpha_relevance = 0.35
+        alpha_diversity = 0.25
         alpha_fairness = 0.2
         alpha_exposure = 0.1
+        alpha_temporal = 0.1
         
         combined_scores = (
             alpha_relevance * candidate_scores +
             alpha_diversity * mmr_scores +
             alpha_fairness * fairness_scores +
-            alpha_exposure * exposure_weights
+            alpha_exposure * exposure_weights -
+            alpha_temporal * temporal_penalties
         )
         
         # Get top-k
         top_k = min(10, num_candidates)
         top_scores, top_indices = torch.topk(combined_scores, top_k)
+
+        selected_item_ids = [candidate_ids[idx] for idx in top_indices.detach().cpu().tolist()]
+        self.temporal_tracker.add_items(selected_item_ids)
+        self.exposure_tracker.update_exposure(selected_item_ids)
         
         return {
             'reranked_indices': top_indices,
@@ -123,7 +143,8 @@ class DiversityFairnessController(nn.Module):
             'relevance_scores': candidate_scores[top_indices],
             'diversity_scores': mmr_scores[top_indices],
             'fairness_scores': fairness_scores[top_indices],
-            'exposure_weights': exposure_weights[top_indices]
+            'exposure_weights': exposure_weights[top_indices],
+            'temporal_penalties': temporal_penalties[top_indices]
         }
     
     def mmr_rerank(self, candidate_items: torch.Tensor,
@@ -263,13 +284,13 @@ class ExposureTracker:
         self.num_items = config['data']['num_items']
         self.target_exposure = 1.0 / self.num_items
         
-    def update_exposure(self, item_ids: List[int]):
+    def update_exposure(self, item_ids: List[Any]):
         """Update exposure counts"""
         for item_id in item_ids:
             self.exposure_counts[item_id] += 1
             self.total_exposures += 1
     
-    def get_exposure_weights(self, candidate_ids: List[int]) -> torch.Tensor:
+    def get_exposure_weights(self, candidate_ids: List[Any]) -> torch.Tensor:
         """
         Get exposure weights for candidates
         Higher weight for under-exposed items
@@ -451,23 +472,30 @@ class TemporalDiversityTracker:
         if len(self.history) > self.window_size:
             self.history = self.history[-self.window_size:]
     
-    def get_penalty(self, candidate_ids: List[str]) -> torch.Tensor:
+    def get_penalty(self, candidate_ids: List[Any], external_history: List[Any] = None) -> torch.Tensor:
         """
         Get penalty for candidates based on recent history
         
         Args:
             candidate_ids: List of candidate item IDs
+            external_history: Optional conversation history items to include
             
         Returns:
             Penalties (num_candidates,) - higher for recently shown items
         """
+        effective_history = list(self.history)
+        if external_history:
+            effective_history.extend(external_history)
+            if len(effective_history) > self.window_size:
+                effective_history = effective_history[-self.window_size:]
+
         penalties = []
         
         for item_id in candidate_ids:
-            if item_id in self.history:
+            if item_id in effective_history:
                 # Recently shown, high penalty
-                recent_index = len(self.history) - self.history[::-1].index(item_id) - 1
-                recency = 1.0 - (recent_index / len(self.history))
+                recent_index = len(effective_history) - effective_history[::-1].index(item_id) - 1
+                recency = 1.0 - (recent_index / max(len(effective_history), 1))
                 penalty = recency  # More recent = higher penalty
             else:
                 penalty = 0.0

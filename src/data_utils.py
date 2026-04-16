@@ -7,6 +7,7 @@ import json
 import os
 import pickle
 import random
+import re
 from collections import defaultdict
 from typing import Dict, List, Tuple, Any
 
@@ -18,10 +19,132 @@ from transformers import BertTokenizer
 from tqdm import tqdm
 
 
+DATASET_FOLDER_ALIASES = {
+    'redial': 'ReDial',
+    'gorecdial': 'GoRecDial',
+    'inspired': 'INSPIRED',
+    'movielens1m': 'MovieLens_1M',
+    'movielens': 'MovieLens_1M',
+    'yelp': 'Yelp',
+    'durecdial': 'DuRecDial',
+    'lastfm': 'LastFM',
+    'opendialkg': 'OpenDialKG',
+}
+
+
+def _normalize_dataset_name(name: str) -> str:
+    """Normalize dataset names for alias matching."""
+    return re.sub(r'[^a-z0-9]', '', str(name).lower())
+
+
+def _load_json_or_jsonl(path: str):
+    """Load JSON or JSONL content from a file path."""
+    if path.lower().endswith('.jsonl'):
+        records = []
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                records.append(json.loads(line))
+        return records
+
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def _pick_existing_path(candidates: List[str]) -> str:
+    """Pick the first existing path from candidates, fallback to first candidate."""
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+    return candidates[0] if candidates else ''
+
+
+def _resolve_dataset_folder_name(dataset_name: str, data_root: str) -> str:
+    """Resolve canonical folder name for dataset, preferring existing folders."""
+    normalized = _normalize_dataset_name(dataset_name)
+    preferred = DATASET_FOLDER_ALIASES.get(normalized, dataset_name)
+
+    if os.path.isdir(data_root):
+        for entry in os.listdir(data_root):
+            full_path = os.path.join(data_root, entry)
+            if os.path.isdir(full_path) and _normalize_dataset_name(entry) == normalized:
+                return entry
+
+    return preferred
+
+
+def apply_dataset_paths(config: Dict, dataset_name: str = None) -> Dict:
+    """
+    Resolve dataset-specific data paths under data_root.
+
+    This enables selecting datasets like ReDial, GoRecDial, INSPIRED, MovieLens_1M,
+    Yelp, DuRecDial, LastFM, OpenDialKG from the same train/test entrypoints.
+    """
+    data_cfg = config.setdefault('data', {})
+
+    requested_name = dataset_name or data_cfg.get('dataset_name', 'ReDial')
+    requested_name = str(requested_name)
+
+    data_root = data_cfg.get('data_root')
+    current_data_dir = data_cfg.get('data_dir', './data')
+    if not data_root:
+        base = os.path.basename(os.path.normpath(current_data_dir))
+        if _normalize_dataset_name(base) in {
+            _normalize_dataset_name(folder) for folder in DATASET_FOLDER_ALIASES.values()
+        }:
+            data_root = os.path.dirname(os.path.normpath(current_data_dir))
+        else:
+            data_root = current_data_dir
+
+    folder_name = _resolve_dataset_folder_name(requested_name, data_root)
+    dataset_dir = os.path.join(data_root, folder_name)
+    processed_dir = os.path.join(dataset_dir, 'processed')
+
+    train_file = _pick_existing_path([
+        os.path.join(dataset_dir, 'train_data.json'),
+        os.path.join(dataset_dir, 'train_data.jsonl'),
+    ])
+    val_file = _pick_existing_path([
+        os.path.join(dataset_dir, 'val_data.json'),
+        os.path.join(dataset_dir, 'val_data.jsonl'),
+    ])
+    test_file = _pick_existing_path([
+        os.path.join(dataset_dir, 'test_data.json'),
+        os.path.join(dataset_dir, 'test_data.jsonl'),
+    ])
+
+    full_data_file = _pick_existing_path([
+        os.path.join(dataset_dir, 'train_data_full.json'),
+        train_file,
+    ])
+
+    catalog_candidates = [
+        os.path.join(dataset_dir, 'item_catalog.json'),
+        os.path.join(data_root, 'item_catalog.json'),
+        data_cfg.get('catalog_file', ''),
+    ]
+    catalog_file = _pick_existing_path(catalog_candidates)
+
+    data_cfg.update({
+        'dataset_name': folder_name,
+        'data_root': data_root,
+        'data_dir': dataset_dir,
+        'processed_dir': processed_dir,
+        'train_file': train_file,
+        'val_file': val_file,
+        'test_file': test_file,
+        'full_data_file': full_data_file,
+        'catalog_file': catalog_file,
+    })
+
+    return config
+
+
 def _load_conversation_file(path: str) -> List[Dict]:
     """Load conversation list from a JSON file supporting common schemas."""
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+    data = _load_json_or_jsonl(path)
 
     if isinstance(data, list):
         return data
@@ -126,6 +249,7 @@ class ReDialDataset(Dataset):
     """ReDial Conversational Recommendation Dataset"""
     
     def __init__(self, data_path: str, item_catalog_path: str, split: str = 'train',
+                 split_file: str = None,
                  max_dialogue_length: int = 20, max_utterance_length: int = 128):
         """
         Args:
@@ -137,6 +261,7 @@ class ReDialDataset(Dataset):
         """
         self.data_path = data_path
         self.split = split
+        self.split_file = split_file
         self.max_dialogue_length = max_dialogue_length
         self.max_utterance_length = max_utterance_length
         
@@ -190,18 +315,16 @@ class ReDialDataset(Dataset):
     
     def load_conversations(self) -> List[Dict]:
         """Load and preprocess conversations"""
-        data_file = os.path.join(self.data_path, f'{self.split}_data.json')
+        data_file = self.split_file or os.path.join(self.data_path, f'{self.split}_data.json')
         
         if not os.path.exists(data_file):
             # Create dummy data if not exists
             print(f"Creating dummy conversation data at {data_file}")
             conversations = self.create_dummy_conversations()
             os.makedirs(os.path.dirname(data_file), exist_ok=True)
-            with open(data_file, 'w', encoding='utf-8') as f:
-                json.dump(conversations, f)
+            _save_conversation_file(data_file, conversations)
         else:
-            with open(data_file, 'r', encoding='utf-8') as f:
-                conversations = json.load(f)
+            conversations = _load_conversation_file(data_file)
         
         # Preprocess conversations
         processed = []
@@ -487,6 +610,7 @@ class UserSimulator:
 
 def create_dataloaders(config: Dict) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """Create train, val, test dataloaders"""
+    apply_dataset_paths(config)
     
     data_dir = config['data']['data_dir']
     catalog_path = config['data']['catalog_file']
@@ -496,6 +620,7 @@ def create_dataloaders(config: Dict) -> Tuple[DataLoader, DataLoader, DataLoader
         data_path=data_dir,
         item_catalog_path=catalog_path,
         split='train',
+        split_file=config['data'].get('train_file'),
         max_dialogue_length=config['data']['max_dialogue_length'],
         max_utterance_length=config['data']['max_utterance_length']
     )
@@ -504,6 +629,7 @@ def create_dataloaders(config: Dict) -> Tuple[DataLoader, DataLoader, DataLoader
         data_path=data_dir,
         item_catalog_path=catalog_path,
         split='val',
+        split_file=config['data'].get('val_file'),
         max_dialogue_length=config['data']['max_dialogue_length'],
         max_utterance_length=config['data']['max_utterance_length']
     )
@@ -512,6 +638,7 @@ def create_dataloaders(config: Dict) -> Tuple[DataLoader, DataLoader, DataLoader
         data_path=data_dir,
         item_catalog_path=catalog_path,
         split='test',
+        split_file=config['data'].get('test_file'),
         max_dialogue_length=config['data']['max_dialogue_length'],
         max_utterance_length=config['data']['max_utterance_length']
     )

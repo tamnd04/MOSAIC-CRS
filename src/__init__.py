@@ -12,7 +12,7 @@ from .diversity_fairness_controller import DiversityFairnessController
 from .explanation_generator import ExplanationGenerator
 from .environment import ConversationalRecommenderEnv
 from .data_utils import ReDialDataset, ItemCatalog, UserSimulator
-from .evaluation import MOCRSEvaluator, evaluate_model
+from .off_policy_evaluation import off_policy_evaluate
 
 __all__ = [
     'MOCRS',
@@ -27,6 +27,5 @@ __all__ = [
     'ReDialDataset',
     'ItemCatalog',
     'UserSimulator',
-    'MOCRSEvaluator',
-    'evaluate_model'
+    'off_policy_evaluate'
 ]

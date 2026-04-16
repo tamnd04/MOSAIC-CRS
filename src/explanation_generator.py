@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from typing import Dict, List, Tuple
 import random
+import warnings
 
 
 class ExplanationGenerator(nn.Module):
@@ -24,21 +25,32 @@ class ExplanationGenerator(nn.Module):
         eg_config = config['model']['explanation_generator']
         
         self.generation_mode = eg_config['generation_mode']  # 'template' or 'neural' or 'hybrid'
+        self.neural_generator_available = False
         self.hidden_dim = eg_config['hidden_dim']
         
         # Neural explanation generator (GPT-2 based)
         if self.generation_mode in ['neural', 'hybrid']:
-            self.gpt2 = GPT2LMHeadModel.from_pretrained('gpt2')
-            self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-            
-            # Freeze most of GPT-2, fine-tune last few layers
-            for param in self.gpt2.parameters():
-                param.requires_grad = False
-            
-            # Unfreeze last 2 transformer blocks
-            for param in self.gpt2.transformer.h[-2:].parameters():
-                param.requires_grad = True
+            try:
+                self.gpt2 = GPT2LMHeadModel.from_pretrained('gpt2')
+                self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+
+                # Freeze most of GPT-2, fine-tune last few layers
+                for param in self.gpt2.parameters():
+                    param.requires_grad = False
+
+                # Unfreeze last 2 transformer blocks
+                for param in self.gpt2.transformer.h[-2:].parameters():
+                    param.requires_grad = True
+
+                self.neural_generator_available = True
+            except Exception as exc:
+                warnings.warn(
+                    f"Failed to load GPT-2 for explanation generation ({exc}). Falling back to template mode.",
+                    RuntimeWarning
+                )
+                if self.generation_mode == 'neural':
+                    self.generation_mode = 'template'
         
         # Template-based components
         self.template_selector = TemplateSelector(config)
@@ -101,13 +113,14 @@ class ExplanationGenerator(nn.Module):
             explanations = self._generate_template_based(
                 item_info, user_info, explanation_type, batch_size
             )
-        elif self.generation_mode == 'neural':
+        elif self.generation_mode == 'neural' and self.neural_generator_available:
             explanations = self._generate_neural(
                 context_encoded, item_info, user_info, explanation_type
             )
         else:  # hybrid
             # Use template 50% of the time, neural 50%
-            if random.random() < 0.5:
+            use_neural = self.neural_generator_available and (random.random() >= 0.5)
+            if not use_neural:
                 explanations = self._generate_template_based(
                     item_info, user_info, explanation_type, batch_size
                 )

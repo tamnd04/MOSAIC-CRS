@@ -9,6 +9,15 @@ MO-CRS is a thesis-oriented conversational recommender prototype that combines f
 
 The project is built around a modular architecture in `src/` and supports supervised pretraining, behavioral cloning warm-start, PPO-based RL fine-tuning, and offline evaluation with OPE metrics.
 
+## Current Architecture Status
+
+The main runtime path now actively uses the advanced modules (not only test paths):
+
+- Personalization Engine (PE): cold-start handling and Thompson-sampling exploration are wired into rollout/inference batches through config-driven switches.
+- Diversity and Fairness Controller (DFC): temporal diversity penalties and exposure updates are applied during top-k reranking.
+- Explanation Generator (EG): default mode is `hybrid` (template + neural); if GPT-2 is unavailable at runtime, generation safely falls back to template mode.
+- Evaluation: novelty is computed from empirical exposure-based self-information, replacing fixed heuristic placeholders.
+
 ## Core Modules
 
 - `src/dialogue_state_tracker.py`: dialogue state and intent/slot signals
@@ -29,10 +38,19 @@ The project is built around a modular architecture in `src/` and supports superv
 ├── requirements.txt
 ├── src/
 │   ├── train.py
-│   ├── evaluation.py
+│   ├── off_policy_evaluation.py
 │   ├── run_experiments.py
 │   └── ...
 ├── data/
+│   ├── ReDial/
+│   ├── GoRecDial/
+│   ├── INSPIRED/
+│   ├── MovieLens_1M/
+│   ├── Yelp/
+│   ├── DuRecDial/
+│   ├── LastFM/
+│   ├── OpenDialKG/
+│   └── item_catalog.json
 └── checkpoints/
 ```
 
@@ -55,45 +73,78 @@ Run from `src/` so relative paths match the provided configs.
 
 ```bash
 cd src
-python train.py --mode pretrain --config ../config.yaml
+python train.py --mode pretrain --config ../config.yaml --dataset ReDial
 ```
 
 ### 2. RL fine-tuning only
 
 ```bash
 cd src
-python train.py --mode rl --config ../config.yaml
+python train.py --mode rl --config ../config.yaml --dataset GoRecDial
 ```
 
 ### 3. Full pipeline (pretrain + RL)
 
 ```bash
 cd src
-python train.py --mode both --config ../config.yaml
+python train.py --mode both --config ../config.yaml --dataset INSPIRED
 ```
 
 ### 4. Thesis-grade profile (recommended for final experiments)
 
 ```bash
 cd src
-python train.py --mode both --config ../config_thesis.yaml --refresh_splits
+python train.py --mode both --config ../config_thesis.yaml --dataset ReDial --refresh_splits
 ```
+
+### 5. Test-only evaluation (no RL, no pretraining)
+
+```bash
+cd src
+python train.py --mode test --config ../config.yaml --dataset ReDial --checkpoint best_rl_model.pt
+```
+
+`--mode test` requires `--checkpoint` and evaluates the loaded model on validation/test splits using OPE.
 
 The thesis profile increases training budget, strengthens validation split policy, and enables periodic OPE-driven model selection.
 
+Supported dataset names (case-insensitive aliases are accepted):
+
+- ReDial
+- GoRecDial
+- INSPIRED
+- MovieLens_1M
+- Yelp
+- DuRecDial
+- LastFM
+- OpenDialKG
+
+## Key Config Toggles
+
+Main switches in `config.yaml` and `config_thesis.yaml`:
+
+- `model.personalization.cold_start.enabled`
+- `model.personalization.thompson_sampling.enabled`
+- `model.personalization.thompson_sampling.num_samples`
+- `model.explanation_generator.generation_mode` (`template`, `neural`, `hybrid`)
+
+For thesis-style runs, keep `generation_mode: hybrid` unless you need deterministic template-only outputs.
+
 ## Checkpoints
 
-Checkpoints are saved to `checkpoints/` (configured by `logging.save_dir`).
+Checkpoints are saved to dataset-specific folders under `checkpoints/` (configured by `logging.save_dir`).
 
 Typical files:
 
-- `best_model.pt` (best supervised checkpoint)
-- `rl_checkpoint_ep*.pt` (periodic RL checkpoints)
-- `best_rl_model.pt` (best RL checkpoint by DR score during evaluation, if produced)
+- `checkpoints/ReDial/best_model.pt` (best supervised checkpoint)
+- `checkpoints/ReDial/rl_checkpoint_ep*.pt` (periodic RL checkpoints)
+- `checkpoints/ReDial/best_rl_model.pt` (best RL checkpoint by DR score during evaluation, if produced)
+
+When loading a checkpoint name (not full path), `train.py` first looks in the selected dataset folder, then falls back to the checkpoint root for backward compatibility.
 
 ## Offline Evaluation (OPE)
 
-At the end of RL training, `train.py` prints offline metrics from `src/evaluation.py`.
+At the end of RL training, `train.py` prints offline metrics from `src/off_policy_evaluation.py`.
 
 Reported metrics include:
 
@@ -101,10 +152,19 @@ Reported metrics include:
 - `snips`
 - `dr`
 - `dm`
+- `dr_ci_low`, `dr_ci_high`
+- `dm_ci_low`, `dm_ci_high`
 - `behavior_recommend_rate`
+- `logged_reward_mean`, `logged_reward_std`
 - `num_samples`
 
 Note: this is still an offline/proxy evaluation setup, so interpret with care and always report assumptions.
+
+## Notes for Reproducibility
+
+- Run training commands from `src/` as shown above so relative config paths resolve correctly.
+- If neural explanation loading fails because pretrained GPT-2 assets are unavailable, the system continues with template generation automatically.
+- Existing checkpoints trained with older policy action dimensions are not guaranteed to be directly comparable with current configs.
 
 ## Baselines and Ablations
 

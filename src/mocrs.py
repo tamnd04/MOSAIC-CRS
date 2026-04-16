@@ -112,11 +112,19 @@ class MOCRS(nn.Module):
             dialogue_states_seq = torch.stack([dialogue_state] * min(10, len(dialogue_history) + 1), dim=1)
         else:
             dialogue_states_seq = dialogue_state.unsqueeze(1)  # (batch, 1, state_dim)
+
+        is_cold_start_batch = batch.get('is_cold_start', None)
+        if is_cold_start_batch is None:
+            is_cold_start_batch = torch.zeros(batch_size, dtype=torch.bool, device=device)
+
+        use_thompson_sampling = batch.get('use_thompson_sampling', None)
         
         pe_outputs = self.pe(
             static_features,
             dialogue_states_seq,
-            item_embeddings=candidate_items[0] if candidate_items is not None else None
+            item_embeddings=candidate_items,
+            is_cold_start=is_cold_start_batch,
+            use_thompson_sampling=use_thompson_sampling
         )
         user_profile = pe_outputs['user_profile']  # (batch, profile_dim)
         
@@ -133,6 +141,9 @@ class MOCRS(nn.Module):
         
         # ==== Diversity & Fairness ====
         if candidate_items is not None:
+            candidate_item_ids = batch.get('candidate_item_ids', None)
+            recommended_history_batch = batch.get('recommended_history', None)
+
             # Rerank candidates
             dfc_outputs_list = []
             for i in range(batch_size):
@@ -140,12 +151,25 @@ class MOCRS(nn.Module):
                 scores_i = pe_outputs['preference_scores'][i] if 'preference_scores' in pe_outputs else torch.rand(items_i.shape[0])
                 user_emb_i = user_profile[i]
                 demographics_i = batch.get('user_demographics', [{}])[i] if i < len(batch.get('user_demographics', [])) else {}
+
+                candidate_ids_i = None
+                if candidate_item_ids is not None and i < len(candidate_item_ids):
+                    candidate_ids_i = candidate_item_ids[i]
+
+                recommended_history_i = None
+                if isinstance(recommended_history_batch, list):
+                    if recommended_history_batch and isinstance(recommended_history_batch[0], list):
+                        if i < len(recommended_history_batch):
+                            recommended_history_i = recommended_history_batch[i]
+                    else:
+                        recommended_history_i = recommended_history_batch
                 
                 dfc_out = self.dfc(
                     items_i,
                     scores_i,
                     user_emb_i,
-                    recommended_history=None,
+                    recommended_history=recommended_history_i,
+                    candidate_ids=candidate_ids_i,
                     user_demographics=demographics_i
                 )
                 dfc_outputs_list.append(dfc_out)
@@ -153,9 +177,11 @@ class MOCRS(nn.Module):
             # Aggregate DFC outputs
             reranked_indices = torch.stack([out['reranked_indices'] for out in dfc_outputs_list])
             reranked_scores = torch.stack([out['reranked_scores'] for out in dfc_outputs_list])
+            temporal_penalties = torch.stack([out['temporal_penalties'] for out in dfc_outputs_list])
         else:
             reranked_indices = None
             reranked_scores = None
+            temporal_penalties = None
         
         # ==== Explanation Generation ====
         # Generate explanations for top recommendations
@@ -207,6 +233,8 @@ class MOCRS(nn.Module):
             # PE outputs
             'user_profile': user_profile,
             'preference_scores': pe_outputs.get('preference_scores', None),
+            'preference_scores_mean': pe_outputs.get('preference_scores_mean', None),
+            'preference_uncertainty': pe_outputs.get('preference_uncertainty', None),
             
             # Policy outputs
             'actions': actions,
@@ -218,6 +246,7 @@ class MOCRS(nn.Module):
             # DFC outputs
             'reranked_indices': reranked_indices,
             'reranked_scores': reranked_scores,
+            'temporal_penalties': temporal_penalties,
             
             # Explanations
             'explanations': explanations,

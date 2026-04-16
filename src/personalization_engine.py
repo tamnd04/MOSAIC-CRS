@@ -26,6 +26,11 @@ class PersonalizationEngine(nn.Module):
         self.num_heads = pe_config['attention_heads']
         self.state_dim = config['model']['dialogue_state_tracker']['state_dim']
         self.profile_dim = pe_config['profile_dim']
+        self.cold_start_enabled = bool(pe_config.get('cold_start', {}).get('enabled', True))
+        thompson_cfg = pe_config.get('thompson_sampling', {})
+        self.thompson_enabled = bool(thompson_cfg.get('enabled', True))
+        self.thompson_num_samples = int(thompson_cfg.get('num_samples', 1))
+        self.thompson_apply_in_eval = bool(thompson_cfg.get('apply_in_eval', False))
         
         # Static profile encoder (demographics, long-term preferences)
         self.static_encoder = nn.Sequential(
@@ -82,7 +87,9 @@ class PersonalizationEngine(nn.Module):
     def forward(self, static_features: torch.Tensor, 
                 dialogue_states: torch.Tensor,
                 item_embeddings: torch.Tensor = None,
-                is_cold_start: bool = False) -> Dict:
+                is_cold_start: torch.Tensor = None,
+                use_thompson_sampling: bool = None,
+                thompson_num_samples: int = None) -> Dict:
         """
         Generate user profile and predict preferences
         
@@ -90,7 +97,9 @@ class PersonalizationEngine(nn.Module):
             static_features: (batch, static_features_dim) - demographics, etc.
             dialogue_states: (batch, seq_len, state_dim) - dialogue history
             item_embeddings: (batch, num_items, item_dim) - candidate items
-            is_cold_start: Whether user is cold-start
+            is_cold_start: Optional bool mask (batch,) or scalar for cold-start users
+            use_thompson_sampling: Override Thompson sampling toggle
+            thompson_num_samples: Override number of Thompson samples
             
         Returns:
             User profile and preference predictions
@@ -117,9 +126,19 @@ class PersonalizationEngine(nn.Module):
         combined = torch.cat([static_profile, dynamic_profile], dim=-1)
         user_profile = self.profile_fusion(combined)  # (batch, profile_dim)
         
-        # Handle cold-start if needed
-        if is_cold_start:
-            user_profile = self.cold_start_handler(user_profile, static_features)
+        # Handle cold-start if needed.
+        if self.cold_start_enabled and is_cold_start is not None:
+            if isinstance(is_cold_start, bool):
+                if is_cold_start:
+                    user_profile = self.cold_start_handler(user_profile, static_features)
+            else:
+                cold_mask = torch.as_tensor(is_cold_start, device=user_profile.device).bool().view(-1)
+                if cold_mask.numel() == 1:
+                    if bool(cold_mask.item()):
+                        user_profile = self.cold_start_handler(user_profile, static_features)
+                elif cold_mask.numel() == batch_size and bool(cold_mask.any()):
+                    enhanced_profile = self.cold_start_handler(user_profile, static_features)
+                    user_profile = torch.where(cold_mask.unsqueeze(-1), enhanced_profile, user_profile)
         
         outputs = {
             'user_profile': user_profile,
@@ -131,7 +150,26 @@ class PersonalizationEngine(nn.Module):
         # Predict preferences if items provided
         if item_embeddings is not None:
             preference_scores = self.predict_preferences(user_profile, item_embeddings)
-            outputs['preference_scores'] = preference_scores
+            outputs['preference_scores_mean'] = preference_scores
+
+            if use_thompson_sampling is None:
+                use_thompson_sampling = self.thompson_enabled and (self.training or self.thompson_apply_in_eval)
+
+            if use_thompson_sampling:
+                sample_count = self.thompson_num_samples if thompson_num_samples is None else max(1, int(thompson_num_samples))
+                sampled_scores, uncertainties = self.thompson_sampler.sample(
+                    user_profile,
+                    preference_scores,
+                    num_samples=sample_count
+                )
+                if sample_count == 1:
+                    outputs['preference_scores'] = sampled_scores
+                else:
+                    outputs['preference_scores'] = sampled_scores.mean(dim=0)
+                outputs['preference_uncertainty'] = uncertainties
+            else:
+                outputs['preference_scores'] = preference_scores
+                outputs['preference_uncertainty'] = torch.zeros_like(preference_scores)
         
         return outputs
     

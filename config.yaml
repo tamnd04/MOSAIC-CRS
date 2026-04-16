@@ -23,11 +23,17 @@ model:
     user_embedding_dim: 128
     attention_heads: 4
     dropout: 0.3
+    cold_start:
+      enabled: true
+    thompson_sampling:
+      enabled: true
+      num_samples: 1
+      apply_in_eval: false
   
   # Policy Network
   policy:
     state_dim: 1024
-    action_dim: 50
+    action_dim: 4
     hidden_dim: 512
     num_objectives: 4
     dropout: 0.3
@@ -61,7 +67,7 @@ model:
     context_dim: 640  # state_dim (512) + profile_dim (128)
     num_explanation_types: 5
     max_length: 50
-    generation_mode: "template"  # "template", "neural", or "hybrid"
+    generation_mode: "hybrid"  # "template", "neural", or "hybrid"
 
 # Training Configuration
 training:
@@ -126,13 +132,14 @@ training:
 
 # Data Configuration
 data:
-  dataset_name: "redial"  # "redial", "gorecDial", or "inspired"
-  data_dir: "./data"
-  processed_dir: "./data/processed"
-  train_file: "./data/train_data.json"
-  val_file: "./data/val_data.json"
-  test_file: "./data/test_data.json"
-  full_data_file: "./data/train_data.json"
+  dataset_name: "ReDial"
+  data_root: "./data"
+  data_dir: "./data/ReDial"
+  processed_dir: "./data/ReDial/processed"
+  train_file: "./data/ReDial/train_data.json"
+  val_file: "./data/ReDial/val_data.json"
+  test_file: "./data/ReDial/test_data.json"
+  full_data_file: "./data/ReDial/train_data.json"
   stronger_validation:
     enabled: true
     val_ratio: 0.15

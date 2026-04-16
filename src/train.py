@@ -18,8 +18,8 @@ import argparse
 from mocrs import MOCRS
 from policy_network import PPOAgent
 from environment import ConversationalRecommenderEnv, BatchedConversationalEnv
-from data_utils import ReDialDataset, ItemCatalog, create_dataloaders, create_stronger_validation_splits
-from evaluation import evaluate_model, off_policy_evaluate
+from data_utils import ReDialDataset, ItemCatalog, apply_dataset_paths, create_dataloaders, create_stronger_validation_splits
+from off_policy_evaluation import off_policy_evaluate
 
 
 class MOCRSTrainer:
@@ -292,8 +292,11 @@ class MOCRSTrainer:
         online_fairness_hist = []
         div_scale = float(self.config.get('environment', {}).get('reward_diversity_factor', 1.0))
         fair_scale = float(self.config.get('environment', {}).get('reward_fairness_factor', 1.0))
+        pe_cfg = self.config.get('model', {}).get('personalization', {})
+        use_thompson_sampling = bool(pe_cfg.get('thompson_sampling', {}).get('enabled', True))
 
-        for episode in range(num_episodes):
+        episode_iterator = tqdm(range(num_episodes), desc='RL Fine-tuning', unit='ep')
+        for episode in episode_iterator:
             # Assign specific training conversations to this episode.
             user_profiles = []
             for env_idx in range(num_envs):
@@ -325,7 +328,13 @@ class MOCRSTrainer:
                 )
 
                 with torch.no_grad():
-                    batch = self._create_rl_batch(states, candidate_embeddings)
+                    batch = self._create_rl_batch(
+                        states,
+                        candidate_embeddings,
+                        candidate_ids_batch,
+                        is_cold_start=(episode_length == 0),
+                        use_thompson_sampling=use_thompson_sampling
+                    )
                     outputs = self.model(batch)
 
                     actions = outputs['actions']
@@ -401,6 +410,12 @@ class MOCRSTrainer:
                     f"Online Success={episode_success:.3f}, Online Turns={episode_turns_avg:.2f}, "
                     f"Online Diversity={episode_diversity:.3f}, Online Fairness={episode_fairness:.3f}"
                 )
+
+            episode_iterator.set_postfix({
+                'reward': f"{float(np.mean(scalar_rewards)) if scalar_rewards else 0.0:.3f}",
+                'success': f"{episode_success:.2f}",
+                'seen': f"{len(seen_conversations)}/{target_conversations}",
+            })
 
             if self.use_wandb and (episode + 1) % log_interval == 0:
                 wandb.log({
@@ -592,18 +607,36 @@ class MOCRSTrainer:
         candidate_embeddings = torch.FloatTensor(np.array(candidate_embeddings)).to(self.device)
         return candidate_ids_batch, candidate_embeddings
 
-    def _create_rl_batch(self, states: torch.Tensor, candidate_embeddings: torch.Tensor) -> Dict:
+    def _create_rl_batch(self, states: torch.Tensor, candidate_embeddings: torch.Tensor,
+                         candidate_ids_batch: List[List[str]] = None,
+                         is_cold_start: bool = False,
+                         use_thompson_sampling: bool = None) -> Dict:
         """Create model batch for RL rollout with candidate item embeddings."""
         batch_size = states.shape[0]
 
         static_dim = self.config['model']['personalization']['static_features_dim']
         static_features = torch.randn(batch_size, static_dim, device=self.device)
 
+        if candidate_ids_batch is None:
+            candidate_ids_batch = [self.item_catalog.sample_items(candidate_embeddings.shape[1]) for _ in range(batch_size)]
+
+        candidate_item_names = []
+        for ids in candidate_ids_batch:
+            names = []
+            for item_id in ids:
+                item = self.item_catalog.get_item(item_id)
+                names.append(item.get('title', str(item_id)) if item else str(item_id))
+            candidate_item_names.append(names)
+
         return {
             'utterances': ['Current utterance'] * batch_size,
             'dialogue_history': None,
             'static_features': static_features,
             'candidate_items': candidate_embeddings,
+            'candidate_item_ids': candidate_ids_batch,
+            'candidate_item_names': candidate_item_names,
+            'is_cold_start': torch.full((batch_size,), bool(is_cold_start), dtype=torch.bool, device=self.device),
+            'use_thompson_sampling': bool(use_thompson_sampling) if use_thompson_sampling is not None else None,
             'user_demographics': [{'age_group': '26-35', 'gender': 'U'} for _ in range(batch_size)]
         }
 
@@ -612,7 +645,7 @@ class MOCRSTrainer:
         """Convert model outputs into environment actions with top-k reranked recommendations."""
         env_actions = []
         for i, action in enumerate(actions):
-            action_type = int(action)
+            action_type = int(np.clip(action, 0, 3))
             recommended_items = []
 
             if action_type == 1:  # recommend
@@ -811,12 +844,18 @@ class MOCRSTrainer:
                 **{f'train/{k}': v for k, v in train_metrics.items()},
                 **{f'val/{k}': v for k, v in val_metrics.items()}
             })
+
+    def _get_dataset_checkpoint_dir(self) -> str:
+        """Return dataset-specific checkpoint directory under logging.save_dir."""
+        checkpoint_root = self.config['logging'].get('save_dir', './checkpoints')
+        dataset_name = str(self.config.get('data', {}).get('dataset_name', 'default')).strip() or 'default'
+        checkpoint_dir = os.path.join(checkpoint_root, dataset_name)
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        return checkpoint_dir
     
     def save_checkpoint(self, filename: str):
         """Save model checkpoint"""
-        checkpoint_dir = self.config['logging'].get('save_dir', './checkpoints')
-        os.makedirs(checkpoint_dir, exist_ok=True)
-        
+        checkpoint_dir = self._get_dataset_checkpoint_dir()
         checkpoint_path = os.path.join(checkpoint_dir, filename)
         
         torch.save({
@@ -831,13 +870,25 @@ class MOCRSTrainer:
         if os.path.isabs(filename) or os.path.exists(filename):
             checkpoint_path = filename
         else:
-            checkpoint_path = os.path.join(self.config['logging'].get('save_dir', './checkpoints'), filename)
+            dataset_dir = self._get_dataset_checkpoint_dir()
+            dataset_checkpoint = os.path.join(dataset_dir, filename)
+            legacy_checkpoint = os.path.join(self.config['logging'].get('save_dir', './checkpoints'), filename)
+
+            if os.path.exists(dataset_checkpoint):
+                checkpoint_path = dataset_checkpoint
+            elif os.path.exists(legacy_checkpoint):
+                checkpoint_path = legacy_checkpoint
+            else:
+                checkpoint_path = dataset_checkpoint
         
         checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         
         self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.train_stats = checkpoint['train_stats']
+        if 'optimizer_state_dict' in checkpoint:
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if 'train_stats' in checkpoint:
+            self.train_stats = checkpoint['train_stats']
+        print(f"Loaded checkpoint: {checkpoint_path}")
 
 
 class ExperienceBuffer:
@@ -873,14 +924,16 @@ def main():
     parser.add_argument('--config', type=str, default='config.yaml',
                        help='Path to config file')
     parser.add_argument('--mode', type=str, default='pretrain',
-                       choices=['pretrain', 'rl', 'both'],
+                       choices=['pretrain', 'rl', 'both', 'test'],
                        help='Training mode')
     parser.add_argument('--wandb', action='store_true',
                        help='Use Weights & Biases logging')
     parser.add_argument('--checkpoint', type=str, default=None,
-                       help='Load from checkpoint')
+                       help='Load checkpoint path, or checkpoint filename from dataset checkpoint folder')
     parser.add_argument('--refresh_splits', action='store_true',
                        help='Regenerate stronger train/val/test splits before training')
+    parser.add_argument('--dataset', type=str, default=None,
+                       help='Dataset to use (e.g., ReDial, GoRecDial, INSPIRED, MovieLens_1M, Yelp, DuRecDial, LastFM, OpenDialKG)')
     
     args = parser.parse_args()
     
@@ -890,16 +943,23 @@ def main():
 
     # Resolve data paths relative to config file location
     config_dir = os.path.dirname(os.path.abspath(args.config))
-    for key in ['catalog_file', 'train_file', 'val_file', 'test_file', 'full_data_file', 'data_dir', 'processed_dir']:
+    for key in ['catalog_file', 'train_file', 'val_file', 'test_file', 'full_data_file', 'data_dir', 'processed_dir', 'data_root']:
         if key in config.get('data', {}):
             path = config['data'][key]
-            if not os.path.isabs(path):
+            if isinstance(path, str) and path and not os.path.isabs(path):
                 config['data'][key] = os.path.normpath(os.path.join(config_dir, path))
     for key in ['save_dir', 'log_dir']:
         if key in config.get('logging', {}):
             path = config['logging'][key]
-            if not os.path.isabs(path):
+            if isinstance(path, str) and path and not os.path.isabs(path):
                 config['logging'][key] = os.path.normpath(os.path.join(config_dir, path))
+
+    apply_dataset_paths(config, args.dataset)
+    print(f"Using dataset: {config['data']['dataset_name']}")
+    print(f"  data_dir: {config['data']['data_dir']}")
+    print(f"  train_file: {config['data']['train_file']}")
+    print(f"  val_file: {config['data']['val_file']}")
+    print(f"  test_file: {config['data']['test_file']}")
 
     if args.refresh_splits and config.get('data', {}).get('stronger_validation', {}).get('enabled', False):
         split_stats = create_stronger_validation_splits(config)
@@ -907,10 +967,51 @@ def main():
     
     # Create trainer
     trainer = MOCRSTrainer(config, use_wandb=args.wandb)
+
+    def _print_ope(split_name: str, split_file: str):
+        if not split_file or not os.path.exists(split_file):
+            print(f"Skipping {split_name} OPE: file not found")
+            return
+        ope_metrics = off_policy_evaluate(trainer.model, split_file, trainer.item_catalog, config, trainer.device)
+        print(f"Off-policy evaluation ({split_name}):")
+        ci_level = float(ope_metrics.get('ci_level', 0.95))
+        print(f"  ips: {float(ope_metrics.get('ips', 0.0)):.3e}")
+        print(f"  snips: {float(ope_metrics.get('snips', 0.0)):.3e}")
+        print(f"  dr: {float(ope_metrics.get('dr', 0.0)):.6f}")
+        print(
+            f"  dr_ci_{int(ci_level * 100)}: "
+            f"[{float(ope_metrics.get('dr_ci_low', ope_metrics.get('dr', 0.0))):.6f}, "
+            f"{float(ope_metrics.get('dr_ci_high', ope_metrics.get('dr', 0.0))):.6f}]"
+        )
+        print(f"  dm: {float(ope_metrics.get('dm', 0.0)):.6f}")
+        print(
+            f"  dm_ci_{int(ci_level * 100)}: "
+            f"[{float(ope_metrics.get('dm_ci_low', ope_metrics.get('dm', 0.0))):.6f}, "
+            f"{float(ope_metrics.get('dm_ci_high', ope_metrics.get('dm', 0.0))):.6f}]"
+        )
+        print(f"  logged_reward_mean: {float(ope_metrics.get('logged_reward_mean', 0.0)):.6f}")
+        print(f"  logged_reward_std: {float(ope_metrics.get('logged_reward_std', 0.0)):.6f}")
+        print(f"  behavior_recommend_rate: {float(ope_metrics.get('behavior_recommend_rate', 0.0)):.6f}")
+        print(f"  num_samples: {float(ope_metrics.get('num_samples', 0.0)):.0f}")
+        print(f"  bootstrap_samples: {int(float(ope_metrics.get('bootstrap_samples', 0.0)))}")
     
     # Load checkpoint if specified
     if args.checkpoint:
         trainer.load_checkpoint(args.checkpoint)
+
+    if args.mode == 'test':
+        if not args.checkpoint:
+            raise ValueError("--mode test requires --checkpoint")
+
+        val_file = config.get('data', {}).get('val_file')
+        test_file = config.get('data', {}).get('test_file')
+        _print_ope('validation', val_file)
+        _print_ope('test', test_file)
+
+        print("\n" + "="*60)
+        print("Test-Only Evaluation Complete!")
+        print("="*60)
+        return
     
     # Training
     if args.mode in ['pretrain', 'both']:
@@ -946,32 +1047,6 @@ def main():
             print(f"  avg_turns: {float(online_metrics.get('avg_turns', 0.0)):.3f}")
             print(f"  diversity: {float(online_metrics.get('diversity', 0.0)):.6f}")
             print(f"  fairness: {float(online_metrics.get('fairness', 0.0)):.6f}")
-
-        def _print_ope(split_name: str, split_file: str):
-            if not split_file or not os.path.exists(split_file):
-                return
-            ope_metrics = off_policy_evaluate(trainer.model, split_file, trainer.item_catalog, config, trainer.device)
-            print(f"Off-policy evaluation ({split_name}):")
-            ci_level = float(ope_metrics.get('ci_level', 0.95))
-            print(f"  ips: {float(ope_metrics.get('ips', 0.0)):.3e}")
-            print(f"  snips: {float(ope_metrics.get('snips', 0.0)):.3e}")
-            print(f"  dr: {float(ope_metrics.get('dr', 0.0)):.6f}")
-            print(
-                f"  dr_ci_{int(ci_level * 100)}: "
-                f"[{float(ope_metrics.get('dr_ci_low', ope_metrics.get('dr', 0.0))):.6f}, "
-                f"{float(ope_metrics.get('dr_ci_high', ope_metrics.get('dr', 0.0))):.6f}]"
-            )
-            print(f"  dm: {float(ope_metrics.get('dm', 0.0)):.6f}")
-            print(
-                f"  dm_ci_{int(ci_level * 100)}: "
-                f"[{float(ope_metrics.get('dm_ci_low', ope_metrics.get('dm', 0.0))):.6f}, "
-                f"{float(ope_metrics.get('dm_ci_high', ope_metrics.get('dm', 0.0))):.6f}]"
-            )
-            print(f"  logged_reward_mean: {float(ope_metrics.get('logged_reward_mean', 0.0)):.6f}")
-            print(f"  logged_reward_std: {float(ope_metrics.get('logged_reward_std', 0.0)):.6f}")
-            print(f"  behavior_recommend_rate: {float(ope_metrics.get('behavior_recommend_rate', 0.0)):.6f}")
-            print(f"  num_samples: {float(ope_metrics.get('num_samples', 0.0)):.0f}")
-            print(f"  bootstrap_samples: {int(float(ope_metrics.get('bootstrap_samples', 0.0)))}")
 
         # Off-policy evaluation on held-out validation and test conversations.
         val_file = config.get('data', {}).get('val_file')

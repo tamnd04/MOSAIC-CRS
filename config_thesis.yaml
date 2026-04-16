@@ -21,10 +21,16 @@ model:
     user_embedding_dim: 128
     attention_heads: 4
     dropout: 0.3
+    cold_start:
+      enabled: true
+    thompson_sampling:
+      enabled: true
+      num_samples: 1
+      apply_in_eval: false
 
   policy:
     state_dim: 1024
-    action_dim: 50
+    action_dim: 4
     hidden_dim: 512
     num_objectives: 4
     dropout: 0.3
@@ -56,10 +62,10 @@ model:
     context_dim: 640
     num_explanation_types: 5
     max_length: 50
-    generation_mode: "template"
+    generation_mode: "hybrid"
 
 training:
-  num_epochs: 5
+  num_epochs: 10
   save_frequency: 1
   num_episodes: 20000
   num_envs: 8
@@ -90,7 +96,7 @@ training:
     learning_rate: 0.0005
 
   eval_interval: 100
-  save_interval: 500
+  save_interval: 100
   log_interval: 10
 
   rl:
@@ -113,13 +119,14 @@ training:
       engagement: 0.15
 
 data:
-  dataset_name: "redial"
-  data_dir: "./data"
-  processed_dir: "./data/processed"
-  train_file: "./data/train_data.json"
-  val_file: "./data/val_data.json"
-  test_file: "./data/test_data.json"
-  full_data_file: "./data/train_data.json"
+  dataset_name: "ReDial"
+  data_root: "./data"
+  data_dir: "./data/ReDial"
+  processed_dir: "./data/ReDial/processed"
+  train_file: "./data/ReDial/train_data.json"
+  val_file: "./data/ReDial/val_data.json"
+  test_file: "./data/ReDial/test_data.json"
+  full_data_file: "./data/ReDial/train_data.json"
 
   max_dialogue_length: 20
   max_utterance_length: 128

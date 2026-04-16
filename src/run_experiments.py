@@ -19,7 +19,7 @@ import torch
 import yaml
 
 from train import MOCRSTrainer
-from evaluation import off_policy_evaluate
+from off_policy_evaluation import off_policy_evaluate
 
 
 def set_global_seed(seed: int) -> None:
