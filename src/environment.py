@@ -204,8 +204,11 @@ class ConversationalRecommenderEnv(gym.Env):
             rewards['diversity'] = 0.0
         
         # ==== Fairness Reward ====
-        fairness_score = self._compute_fairness(items)
-        rewards['fairness'] = fairness_score * self.reward_config['reward_fairness_factor']
+        if action_type == 1 and items:
+            fairness_score = self._compute_fairness(items)
+            rewards['fairness'] = fairness_score * self.reward_config['reward_fairness_factor']
+        else:
+            rewards['fairness'] = 0.0
         
         # ==== Engagement Reward ====
         if user_response['action'] == 'ask_more':

@@ -80,7 +80,7 @@ python train.py --mode pretrain --config ../config.yaml --dataset ReDial
 
 ```bash
 cd src
-python train.py --mode rl --config ../config.yaml --dataset GoRecDial
+python train.py --mode rl --config ../config.yaml --dataset GoRecDial --eval_output ../logs/GoRecDial_rl_ope.json
 ```
 
 ### 3. Full pipeline (pretrain + RL)
@@ -94,17 +94,18 @@ python train.py --mode both --config ../config.yaml --dataset INSPIRED
 
 ```bash
 cd src
-python train.py --mode both --config ../config_thesis.yaml --dataset ReDial --refresh_splits
+python train.py --mode both --config ../config_thesis.yaml --dataset ReDial --refresh_splits --eval_output ../logs/ReDial_thesis_ope.json
 ```
 
 ### 5. Test-only evaluation (no RL, no pretraining)
 
 ```bash
 cd src
-python train.py --mode test --config ../config.yaml --dataset ReDial --checkpoint best_rl_model.pt
+python train.py --mode test --config ../config.yaml --dataset ReDial --checkpoint best_rl_model.pt --eval_output ../logs/ReDial_test_ope.json
 ```
 
 `--mode test` requires `--checkpoint` and evaluates the loaded model on validation/test splits using OPE.
+Use `--eval_output` in RL or test modes to save evaluation metrics as a JSON report for paper comparison.
 
 The thesis profile increases training budget, strengthens validation split policy, and enables periodic OPE-driven model selection.
 
@@ -145,6 +146,7 @@ When loading a checkpoint name (not full path), `train.py` first looks in the se
 ## Offline Evaluation (OPE)
 
 At the end of RL training, `train.py` prints offline metrics from `src/off_policy_evaluation.py`.
+If `--eval_output` is provided, the same OPE metrics are also saved to a JSON file.
 
 Reported metrics include:
 
@@ -159,6 +161,17 @@ Reported metrics include:
 - `num_samples`
 
 Note: this is still an offline/proxy evaluation setup, so interpret with care and always report assumptions.
+
+## Aggregate Evaluation CSV
+
+You can aggregate all per-dataset JSON evaluation outputs into one thesis-ready CSV table:
+
+```bash
+cd src
+python aggregate_eval_reports.py --input_dir ../logs --recursive --output ../logs/thesis_eval_summary.csv
+```
+
+Each row in the CSV corresponds to one dataset/split (`validation` or `test`) from an evaluation JSON report.
 
 ## Notes for Reproducibility
 

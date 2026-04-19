@@ -319,6 +319,7 @@ class MOCRSTrainer:
             done = False
             episode_diversity_values = []
             episode_fairness_values = []
+            episode_action_counts = np.zeros(4, dtype=np.int32)
             last_infos = []
 
             while not done and episode_length < rollout_horizon:
@@ -348,6 +349,11 @@ class MOCRSTrainer:
                     reranked_indices,
                     top_k=top_k_recommendations
                 )
+
+                for env_action in env_actions:
+                    action_type = int(env_action.get('action_type', 0))
+                    if 0 <= action_type < 4:
+                        episode_action_counts[action_type] += 1
 
                 next_states_np, rewards_np, dones_np, infos = env.step(env_actions)
                 next_states = torch.FloatTensor(next_states_np).to(self.device)
@@ -395,6 +401,11 @@ class MOCRSTrainer:
                 episode_diversity = float(np.mean(np.concatenate(episode_diversity_values))) if episode_diversity_values else 0.0
 
             episode_fairness = float(np.mean(np.concatenate(episode_fairness_values))) if episode_fairness_values else 0.0
+            total_actions = int(episode_action_counts.sum())
+            if total_actions > 0:
+                action_ratios = episode_action_counts.astype(np.float32) / float(total_actions)
+            else:
+                action_ratios = np.zeros(4, dtype=np.float32)
             online_success_hist.append(episode_success)
             online_turns_hist.append(episode_turns_avg)
             online_diversity_hist.append(episode_diversity)
@@ -408,7 +419,9 @@ class MOCRSTrainer:
                     f"Policy Loss={update_stats['policy_loss']:.4f}, "
                     f"Seen Conversations={len(seen_conversations)}/{target_conversations}, "
                     f"Online Success={episode_success:.3f}, Online Turns={episode_turns_avg:.2f}, "
-                    f"Online Diversity={episode_diversity:.3f}, Online Fairness={episode_fairness:.3f}"
+                    f"Online Diversity={episode_diversity:.3f}, Online Fairness={episode_fairness:.3f}, "
+                    f"Actions[ask={action_ratios[0]:.2f}, rec={action_ratios[1]:.2f}, "
+                    f"clar={action_ratios[2]:.2f}, end={action_ratios[3]:.2f}]"
                 )
 
             episode_iterator.set_postfix({
@@ -428,7 +441,11 @@ class MOCRSTrainer:
                     'online/success_rate': episode_success,
                     'online/avg_turns': episode_turns_avg,
                     'online/diversity': episode_diversity,
-                    'online/fairness': episode_fairness
+                    'online/fairness': episode_fairness,
+                    'online/actions/ask_ratio': float(action_ratios[0]),
+                    'online/actions/recommend_ratio': float(action_ratios[1]),
+                    'online/actions/clarify_ratio': float(action_ratios[2]),
+                    'online/actions/end_ratio': float(action_ratios[3])
                 })
 
             if (episode + 1) % self.config['training'].get('save_interval', 500) == 0:
@@ -934,6 +951,8 @@ def main():
                        help='Regenerate stronger train/val/test splits before training')
     parser.add_argument('--dataset', type=str, default=None,
                        help='Dataset to use (e.g., ReDial, GoRecDial, INSPIRED, MovieLens_1M, Yelp, DuRecDial, LastFM, OpenDialKG)')
+    parser.add_argument('--eval_output', type=str, default=None,
+                       help='Optional path to save evaluation metrics as JSON')
     
     args = parser.parse_args()
     
@@ -954,6 +973,9 @@ def main():
             if isinstance(path, str) and path and not os.path.isabs(path):
                 config['logging'][key] = os.path.normpath(os.path.join(config_dir, path))
 
+    if args.eval_output and not os.path.isabs(args.eval_output):
+        args.eval_output = os.path.normpath(os.path.join(config_dir, args.eval_output))
+
     apply_dataset_paths(config, args.dataset)
     print(f"Using dataset: {config['data']['dataset_name']}")
     print(f"  data_dir: {config['data']['data_dir']}")
@@ -967,11 +989,28 @@ def main():
     
     # Create trainer
     trainer = MOCRSTrainer(config, use_wandb=args.wandb)
+    eval_report = {
+        'mode': args.mode,
+        'dataset': config.get('data', {}).get('dataset_name'),
+        'config': os.path.abspath(args.config),
+        'checkpoint': args.checkpoint,
+        'ope': {}
+    }
+
+    def _save_eval_report() -> None:
+        if not args.eval_output:
+            return
+        out_dir = os.path.dirname(args.eval_output)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        with open(args.eval_output, 'w', encoding='utf-8') as f:
+            json.dump(eval_report, f, indent=2, ensure_ascii=True)
+        print(f"Saved evaluation report to: {args.eval_output}")
 
     def _print_ope(split_name: str, split_file: str):
         if not split_file or not os.path.exists(split_file):
             print(f"Skipping {split_name} OPE: file not found")
-            return
+            return None
         ope_metrics = off_policy_evaluate(trainer.model, split_file, trainer.item_catalog, config, trainer.device)
         print(f"Off-policy evaluation ({split_name}):")
         ci_level = float(ope_metrics.get('ci_level', 0.95))
@@ -994,6 +1033,7 @@ def main():
         print(f"  behavior_recommend_rate: {float(ope_metrics.get('behavior_recommend_rate', 0.0)):.6f}")
         print(f"  num_samples: {float(ope_metrics.get('num_samples', 0.0)):.0f}")
         print(f"  bootstrap_samples: {int(float(ope_metrics.get('bootstrap_samples', 0.0)))}")
+        return ope_metrics
     
     # Load checkpoint if specified
     if args.checkpoint:
@@ -1005,8 +1045,13 @@ def main():
 
         val_file = config.get('data', {}).get('val_file')
         test_file = config.get('data', {}).get('test_file')
-        _print_ope('validation', val_file)
-        _print_ope('test', test_file)
+        val_metrics = _print_ope('validation', val_file)
+        test_metrics = _print_ope('test', test_file)
+        if val_metrics is not None:
+            eval_report['ope']['validation'] = val_metrics
+        if test_metrics is not None:
+            eval_report['ope']['test'] = test_metrics
+        _save_eval_report()
 
         print("\n" + "="*60)
         print("Test-Only Evaluation Complete!")
@@ -1047,12 +1092,19 @@ def main():
             print(f"  avg_turns: {float(online_metrics.get('avg_turns', 0.0)):.3f}")
             print(f"  diversity: {float(online_metrics.get('diversity', 0.0)):.6f}")
             print(f"  fairness: {float(online_metrics.get('fairness', 0.0)):.6f}")
+            eval_report['online_simulator'] = online_metrics
 
         # Off-policy evaluation on held-out validation and test conversations.
         val_file = config.get('data', {}).get('val_file')
         test_file = config.get('data', {}).get('test_file')
-        _print_ope('validation', val_file)
-        _print_ope('test', test_file)
+        val_metrics = _print_ope('validation', val_file)
+        test_metrics = _print_ope('test', test_file)
+        if val_metrics is not None:
+            eval_report['ope']['validation'] = val_metrics
+        if test_metrics is not None:
+            eval_report['ope']['test'] = test_metrics
+
+    _save_eval_report()
     
     print("\n" + "="*60)
     print("Training Complete!")
