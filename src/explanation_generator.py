@@ -117,9 +117,11 @@ class ExplanationGenerator(nn.Module):
             explanations = self._generate_neural(
                 context_encoded, item_info, user_info, explanation_type
             )
+
         else:  # hybrid
-            # Use template 50% of the time, neural 50%
-            use_neural = self.neural_generator_available and (random.random() >= 0.5)
+            # Prefer grounded template generation when item metadata is available.
+            has_grounded_item = bool(item_info.get('name')) and bool(item_info.get('genre') or item_info.get('genres'))
+            use_neural = self.neural_generator_available and (not has_grounded_item) and (random.random() >= 0.7)
             if not use_neural:
                 explanations = self._generate_template_based(
                     item_info, user_info, explanation_type, batch_size
@@ -314,13 +316,18 @@ class TemplateSelector:
         
         # Extract values from item_info
         item_name = item_info.get('name', 'this movie')
-        genre = item_info.get('genre', 'drama')
+        genre = item_info.get('genre', item_info.get('category', 'drama'))
         actor = item_info.get('actor', 'acclaimed actors')
         director = item_info.get('director', 'a renowned director')
         year = item_info.get('year', 'recent')
         rating = item_info.get('rating', 'high')
         
         # Fill template
+
+        liked_titles = user_info.get('liked_titles', []) if isinstance(user_info, dict) else []
+        similar_item = liked_titles[0] if isinstance(liked_titles, list) and liked_titles else user_info.get('similar_item', 'movies you liked') if isinstance(user_info, dict) else 'movies you liked'
+        feature = user_info.get('favorite_genre', genre) if isinstance(user_info, dict) else genre
+
         try:
             explanation = template.format(
                 item=item_name,
@@ -329,8 +336,8 @@ class TemplateSelector:
                 director=director,
                 year=year,
                 rating=rating,
-                feature=genre,
-                similar_item='movies you liked'
+                feature=feature,
+                similar_item=similar_item
             )
         except KeyError:
             # If template has placeholders we don't have values for

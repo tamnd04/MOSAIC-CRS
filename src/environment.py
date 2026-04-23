@@ -35,6 +35,9 @@ class ConversationalRecommenderEnv(gym.Env):
         # Environment parameters
         self.max_turns = config['environment']['max_turns']
         self.reward_config = config['environment']
+        self.min_turns_before_end = int(self.reward_config.get('min_turns_before_end', 0))
+        self.min_recommendations_before_end = int(self.reward_config.get('min_recommendations_before_end', 0))
+        self.early_end_penalty = float(self.reward_config.get('early_end_penalty', 0.0))
         
         # Action space: [action_type, item_indices]
         # Action types: 0=ask_preference, 1=recommend, 2=clarify, 3=end
@@ -61,6 +64,8 @@ class ConversationalRecommenderEnv(gym.Env):
         self.user_preferences = []
         self.conversation_success = False
         self.current_user_profile = {}
+        self.non_recommend_streak = 0
+        self.preference_actions = 0
         
         # Statistics tracking
         self.episode_stats = {
@@ -78,6 +83,8 @@ class ConversationalRecommenderEnv(gym.Env):
         self.recommended_items = []
         self.user_preferences = []
         self.conversation_success = False
+        self.non_recommend_streak = 0
+        self.preference_actions = 0
         
         # Keep a copy for state construction/debugging
         self.current_user_profile = user_profile or {}
@@ -149,9 +156,11 @@ class ConversationalRecommenderEnv(gym.Env):
     def _simulate_user_response(self, action_type: int, items: List[str]) -> Dict:
         """Simulate user response to system action"""
         
+
         if action_type == 0:  # ask_preference
             preference = self.user.provide_preference()
             self.user_preferences.append(preference)
+            self.preference_actions += 1
             return {
                 'action': 'inform',
                 'utterance': preference,
@@ -164,10 +173,14 @@ class ConversationalRecommenderEnv(gym.Env):
             response = self.user.respond_to_recommendation(items, self.current_turn)
             return response
         
+
         elif action_type == 2:  # clarify
+            clarification = self.user.provide_preference()
+            self.user_preferences.append(clarification)
+            self.preference_actions += 1
             return {
-                'action': 'clarify_response',
-                'utterance': 'Let me clarify...',
+                'action': 'inform',
+                'utterance': f"To clarify, {clarification}",
                 'satisfied': False
             }
         
@@ -210,15 +223,56 @@ class ConversationalRecommenderEnv(gym.Env):
         else:
             rewards['fairness'] = 0.0
         
+
         # ==== Engagement Reward ====
-        if user_response['action'] == 'ask_more':
-            rewards['engagement'] = 5.0
+        if action_type == 0:
+            early_bonus = 0.25 if self.current_turn <= 3 else 0.0
+            rewards['engagement'] = float(self.reward_config.get('reward_ask_preference', 0.0)) + early_bonus
+        elif action_type == 2:
+            rewards['engagement'] = float(self.reward_config.get('reward_clarify', 0.0)) + 0.1
+        elif user_response['action'] == 'ask_more':
+            rewards['engagement'] = 2.5
         elif user_response['action'] == 'leave':
             rewards['engagement'] = -10.0
         elif user_response['action'] == 'inform':
-            rewards['engagement'] = 2.0
+            rewards['engagement'] = 0.6
+        elif user_response['action'] == 'reject':
+            rewards['engagement'] = float(self.reward_config.get('reward_reject_engagement', -1.0))
         else:
-            rewards['engagement'] = 1.0
+            rewards['engagement'] = 0.8
+
+        if action_type == 1 and items:
+            self.non_recommend_streak = 0
+            rewards['engagement'] += float(self.reward_config.get('reward_recommend_attempt_bonus', 0.0))
+            if self.current_turn <= 2 and self.preference_actions == 0:
+                rewards['engagement'] -= float(self.reward_config.get('early_recommend_penalty', 1.0))
+            if len(set(items)) < len(items):
+                rewards['engagement'] -= 0.4
+            repeated = len(set(items).intersection(set(self.recommended_items[:-len(items)]))) if len(self.recommended_items) > len(items) else 0
+            if repeated > 0:
+                rewards['engagement'] -= min(1.0, 0.25 * repeated)
+        else:
+            self.non_recommend_streak += 1
+            streak_step = float(self.reward_config.get('non_recommend_streak_penalty', 0.0))
+            streak_cap = float(self.reward_config.get('non_recommend_streak_penalty_max', 0.0))
+            streak_penalty = min(streak_cap, streak_step * max(0, self.non_recommend_streak - 1))
+            rewards['engagement'] -= streak_penalty
+
+        # Strong anti-collapse penalty for ending too early.
+        if (
+            action_type == 3
+            and (
+                (
+                    self.min_turns_before_end > 0
+                    and self.current_turn < self.min_turns_before_end
+                )
+                or (
+                    self.min_recommendations_before_end > 0
+                    and len(set(self.recommended_items)) < self.min_recommendations_before_end
+                )
+            )
+        ):
+            rewards['engagement'] -= self.early_end_penalty
         
         return rewards
     
@@ -283,12 +337,13 @@ class ConversationalRecommenderEnv(gym.Env):
         else:
             fairness_score += 0.5
         
-        # Popularity balance (prefer less popular items sometimes)
+        # Popularity balance (prefer less-mentioned items sometimes)
         popularities = []
         for item_id in items:
             item = self.item_catalog.get_item(item_id)
             if item:
-                popularities.append(item.get('popularity', 500))
+                # Use mention count as popularity proxy; keep backward compatibility with old catalogs.
+                popularities.append(item.get('mentions', item.get('popularity', 500)))
         
         if popularities:
             avg_popularity = np.mean(popularities)

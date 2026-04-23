@@ -134,9 +134,17 @@ def _build_eval_batch(
 
     utterance = 'Eval utterance'
     if turns:
-        utterance = turns[0].get('user_utterance', turns[0].get('utterance', utterance))
+        # Use latest available utterance so evaluation conditions on richest known context.
+        for turn in reversed(turns):
+            if not isinstance(turn, dict):
+                continue
+            text = turn.get('user_utterance', turn.get('utterance', ''))
+            if text:
+                utterance = text
+                break
 
     observed_items = []
+    observed_categories = set()
     for turn in turns:
         if not isinstance(turn, dict):
             continue
@@ -146,14 +154,64 @@ def _build_eval_batch(
                 observed_items.extend(str(v) for v in values if v is not None)
 
     accepted_items = set(str(x) for x in conversation.get('accepted_items', []) if x is not None)
+    accepted_categories = set()
 
-    # Keep observed items first, then fill with random samples.
+    for item_id in accepted_items:
+        item = item_catalog.get_item(item_id)
+        if item:
+            accepted_categories.add(str(item.get('category', 'Unknown')))
+
+    for item_id in observed_items:
+        item = item_catalog.get_item(item_id)
+        if item:
+            observed_categories.add(str(item.get('category', 'Unknown')))
+
+    # Keep accepted/observed items first.
     dedup = []
     seen = set()
-    for item_id in observed_items:
+
+    priority_items = list(accepted_items) + observed_items
+    for item_id in priority_items:
         if item_id in item_catalog.catalog and item_id not in seen:
             seen.add(item_id)
             dedup.append(item_id)
+
+    # Fill remaining slots with deterministic, context-aware candidates.
+    # Prefer items matching accepted/observed categories while mixing popularity levels.
+    if len(dedup) < candidate_size:
+        scored_candidates = []
+        for item_id, item in item_catalog.catalog.items():
+            item_id = str(item_id)
+            if item_id in seen:
+                continue
+
+            category = str(item.get('category', 'Unknown'))
+            mentions = float(item.get('mentions', item.get('popularity', 0.0)) or 0.0)
+            title = str(item.get('title', ''))
+
+            category_bonus = 0.0
+            if category in accepted_categories:
+                category_bonus += 2.0
+            if category in observed_categories:
+                category_bonus += 1.0
+
+            # Popularity balance: not only head items.
+            popularity_term = np.log1p(max(mentions, 0.0))
+            score = category_bonus + 0.15 * popularity_term
+            scored_candidates.append((score, popularity_term, title, item_id))
+
+        # Deterministic ordering for reproducible evaluation.
+        scored_candidates.sort(key=lambda x: (-x[0], -x[1], x[2], x[3]))
+
+        for _, _, _, item_id in scored_candidates:
+            if item_id in seen:
+                continue
+            seen.add(item_id)
+            dedup.append(item_id)
+            if len(dedup) >= candidate_size:
+                break
+
+    # Final fallback if candidate list is still short.
     if len(dedup) < candidate_size:
         for item_id in item_catalog.sample_items(candidate_size):
             if item_id not in seen:
@@ -167,11 +225,34 @@ def _build_eval_batch(
     candidate_items = torch.as_tensor(np.asarray(candidate_embs, dtype=np.float32), device=device).unsqueeze(0)
 
     static_dim = config['model']['personalization']['static_features_dim']
-    static_features = torch.zeros(1, static_dim, dtype=torch.float32, device=device)
+    static_features_np = np.zeros((1, static_dim), dtype=np.float32)
+    age_map = {
+        '18-25': 0.2,
+        '26-35': 0.4,
+        '26-40': 0.4,
+        '36-45': 0.6,
+        '40+': 0.8,
+        '46-55': 0.8,
+        '55+': 1.0,
+    }
+    static_features_np[0, 0] = age_map.get(str(profile.get('age_group', 'unknown')), 0.5)
+    gender = str(profile.get('gender', 'U')).upper()
+    static_features_np[0, 1] = 1.0 if gender == 'F' else 0.0
+    static_features_np[0, 2] = 1.0 if gender == 'M' else 0.0
+    static_features_np[0, 3] = min(len(accepted_items), 20) / 20.0
+    static_features = torch.as_tensor(static_features_np, dtype=torch.float32, device=device)
+
+    history_turns = []
+    for turn in turns[-10:]:
+        if not isinstance(turn, dict):
+            continue
+        text = turn.get('user_utterance', turn.get('utterance', ''))
+        if text:
+            history_turns.append({'utterance': str(text)})
 
     batch = {
         'utterances': [utterance],
-        'dialogue_history': None,
+        'dialogue_history': history_turns if history_turns else None,
         'static_features': static_features,
         'candidate_items': candidate_items,
         'candidate_item_ids': [candidate_ids],

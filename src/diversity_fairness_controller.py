@@ -115,11 +115,11 @@ class DiversityFairnessController(nn.Module):
         
         # ==== Combined Score ====
         # Weighted combination: relevance + diversity + fairness + exposure - temporal repetition.
-        alpha_relevance = 0.35
+        alpha_relevance = 0.30
         alpha_diversity = 0.25
-        alpha_fairness = 0.2
-        alpha_exposure = 0.1
-        alpha_temporal = 0.1
+        alpha_fairness = 0.25
+        alpha_exposure = 0.15
+        alpha_temporal = 0.05
         
         combined_scores = (
             alpha_relevance * candidate_scores +
@@ -130,7 +130,7 @@ class DiversityFairnessController(nn.Module):
         )
         
         # Get top-k
-        top_k = min(10, num_candidates)
+        top_k = min(50, num_candidates)
         top_scores, top_indices = torch.topk(combined_scores, top_k)
 
         selected_item_ids = [candidate_ids[idx] for idx in top_indices.detach().cpu().tolist()]
@@ -223,7 +223,8 @@ class DiversityFairnessController(nn.Module):
         
         return fairness_scores
     
-    def compute_diversity_metrics(self, recommended_items: List[torch.Tensor]) -> Dict:
+    def compute_diversity_metrics(self, recommended_items: List[torch.Tensor],
+                                  recommended_item_ids: List[Any] = None) -> Dict:
         """
         Compute diversity metrics for recommended items
         
@@ -254,16 +255,37 @@ class DiversityFairnessController(nn.Module):
         # Diversity = 1 - similarity
         intra_list_diversity = (1 - pairwise_sims.mean()).item()
         
-        # Coverage (would need full catalog in practice)
-        coverage = len(recommended_items) / 1000.0  # Dummy
-        
-        # Novelty (inverse of average popularity)
-        novelty = 0.7  # Dummy
+        # Coverage: proportion of unique items exposed so far over catalog size.
+        total_catalog_items = max(int(getattr(self.exposure_tracker, 'num_items', 0)), 1)
+        historical_exposed = set(self.exposure_tracker.exposure_counts.keys())
+        if recommended_item_ids:
+            historical_exposed.update(recommended_item_ids)
+        coverage = min(1.0, len(historical_exposed) / total_catalog_items)
+
+        # Novelty: inverse normalized self-information from exposure frequency.
+        novelty = 0.0
+        if recommended_item_ids:
+            total_exposures = max(int(self.exposure_tracker.total_exposures), 0)
+            denom = total_exposures + total_catalog_items
+            max_self_info = np.log2(denom)
+
+            novelty_vals = []
+            for item_id in recommended_item_ids:
+                seen_count = int(self.exposure_tracker.exposure_counts.get(item_id, 0))
+                # Laplace smoothing keeps unseen items finite and comparable.
+                prob = (seen_count + 1.0) / max(denom, 1)
+                self_info = -np.log2(prob)
+                novelty_vals.append(self_info / max(max_self_info, 1e-8))
+
+            novelty = float(np.mean(novelty_vals)) if novelty_vals else 0.0
+        else:
+            # Fallback when ids are unavailable: use dissimilarity as a novelty proxy.
+            novelty = float(max(0.0, min(1.0, intra_list_diversity)))
         
         return {
             'intra_list_diversity': intra_list_diversity,
-            'coverage': coverage,
-            'novelty': novelty
+            'coverage': float(coverage),
+            'novelty': float(max(0.0, min(1.0, novelty)))
         }
 
 

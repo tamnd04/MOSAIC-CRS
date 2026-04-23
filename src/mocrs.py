@@ -136,8 +136,10 @@ class MOCRS(nn.Module):
         policy_outputs = self.policy(policy_state)
         action_probs = policy_outputs['action_probs']
         
+
         # Select actions
-        actions, log_probs = self.policy.select_action(policy_state, deterministic=False)
+        deterministic_actions = bool(batch.get('deterministic_actions', False))
+        actions, log_probs = self.policy.select_action(policy_state, deterministic=deterministic_actions)
         
         # ==== Diversity & Fairness ====
         if candidate_items is not None:
@@ -186,15 +188,26 @@ class MOCRS(nn.Module):
         # ==== Explanation Generation ====
         # Generate explanations for top recommendations
         explanations = []
-        if candidate_items is not None and reranked_indices is not None:
+        generate_explanations = bool(batch.get('generate_explanations', True))
+        if candidate_items is not None and reranked_indices is not None and generate_explanations:
             # Use dialogue state + user profile as context for explanation
             explanation_context = combined_state  # (batch, state_dim + profile_dim)
+
             candidate_item_ids = batch.get('candidate_item_ids', None)
             candidate_item_names = batch.get('candidate_item_names', None)
-            
+            candidate_item_metadata = batch.get('candidate_item_metadata', None)
+            preferred_reference_titles = batch.get('preferred_reference_titles', None)
+            preferred_categories = batch.get('preferred_categories', None)
+
             for i in range(batch_size):
                 top_item_idx = reranked_indices[i, 0].item()
                 item_name = f'Item_{top_item_idx}'
+                item_meta = {}
+
+                if candidate_item_metadata is not None and i < len(candidate_item_metadata):
+                    meta_i = candidate_item_metadata[i]
+                    if isinstance(meta_i, list) and 0 <= top_item_idx < len(meta_i) and isinstance(meta_i[top_item_idx], dict):
+                        item_meta = meta_i[top_item_idx]
 
                 # If caller provides candidate item ids, map reranked index back to real item id.
                 if candidate_item_ids is not None and i < len(candidate_item_ids):
@@ -207,20 +220,44 @@ class MOCRS(nn.Module):
                     names_i = candidate_item_names[i]
                     if isinstance(names_i, list) and 0 <= top_item_idx < len(names_i):
                         item_name = str(names_i[top_item_idx])
-                
+
                 item_info = {
-                    'name': item_name,
-                    'genre': 'Drama',  # Would come from item catalog
-                    'rating': '8.5'
+                    'name': str(item_meta.get('title', item_name)),
+                    'genre': item_meta.get('genre', item_meta.get('category', 'movie')),
+                    'genres': item_meta.get('genres', []),
+                    'category': item_meta.get('category', item_meta.get('genre', 'movie')),
+                    'rating': str(item_meta.get('rating', '')),
+                    'year': str(item_meta.get('year', '')),
+                    'actor': item_meta.get('actor', 'cast members'),
+                    'director': item_meta.get('director', 'the director'),
                 }
-                user_info = {'age': 30}
-                
+
+                liked_titles = []
+                if preferred_reference_titles is not None and i < len(preferred_reference_titles):
+                    liked_titles = preferred_reference_titles[i] if isinstance(preferred_reference_titles[i], list) else []
+                favorite_genre = None
+                if preferred_categories is not None and i < len(preferred_categories):
+                    cats_i = preferred_categories[i]
+                    if isinstance(cats_i, list) and cats_i:
+                        favorite_genre = str(cats_i[0])
+
+                user_info = {
+                    'liked_titles': liked_titles,
+                    'similar_item': liked_titles[0] if liked_titles else 'movies you liked',
+                    'favorite_genre': favorite_genre or item_info['category'],
+                }
+
+                preferred_genre_set = set(str(g) for g in item_meta.get('genres', []) if g)
+                explanation_type = 'feature_based' if preferred_genre_set else 'content_based'
                 eg_out = self.eg(
                     explanation_context[i:i+1],
                     item_info,
-                    user_info
+                    user_info,
+                    explanation_type=explanation_type,
                 )
                 explanations.append(eg_out['explanations'][0])
+        elif candidate_items is not None:
+            explanations = [''] * batch_size
         
         # ==== Return all outputs ====
         return {

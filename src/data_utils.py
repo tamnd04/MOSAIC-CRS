@@ -9,7 +9,7 @@ import pickle
 import random
 import re
 from collections import defaultdict
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Set
 
 import numpy as np
 import pandas as pd
@@ -127,6 +127,17 @@ def apply_dataset_paths(config: Dict, dataset_name: str = None) -> Dict:
     ]
     catalog_file = _pick_existing_path(catalog_candidates)
 
+    resolved_num_items = data_cfg.get('num_items', 0)
+    if catalog_file and os.path.exists(catalog_file):
+        try:
+            with open(catalog_file, 'r', encoding='utf-8') as f:
+                catalog_data = json.load(f)
+            if isinstance(catalog_data, dict):
+                resolved_num_items = len(catalog_data)
+        except Exception:
+            # Keep existing num_items when catalog is unreadable.
+            pass
+
     data_cfg.update({
         'dataset_name': folder_name,
         'data_root': data_root,
@@ -137,6 +148,7 @@ def apply_dataset_paths(config: Dict, dataset_name: str = None) -> Dict:
         'test_file': test_file,
         'full_data_file': full_data_file,
         'catalog_file': catalog_file,
+        'num_items': int(resolved_num_items) if resolved_num_items else data_cfg.get('num_items', 0),
     })
 
     return config
@@ -503,109 +515,182 @@ class UserSimulator:
         self.acceptance_threshold = random.uniform(0.6, 0.9)
         self.diversity_preference = random.uniform(0.3, 0.7)
     
+    
     def reset(self, user_profile: Dict = None):
-        """Reset user state"""
+        """Reset user state with richer preference and taxonomy information."""
         if user_profile:
             self.user_id = user_profile.get('user_id', f'user_{random.randint(0, 10000)}')
-            self.preferences = user_profile.get('preferences', [])
+            self.preferences = [str(x) for x in user_profile.get('preferences', [])]
             self.age_group = user_profile.get('age_group', random.choice(['18-25', '26-40', '40+']))
             self.gender = user_profile.get('gender', random.choice(['M', 'F', 'Other']))
         else:
-            # Random user
             self.user_id = f'user_{random.randint(0, 10000)}'
-            self.preferences = self.item_catalog.sample_items(5)
+            self.preferences = [str(x) for x in self.item_catalog.sample_items(5)]
             self.age_group = random.choice(['18-25', '26-40', '40+'])
             self.gender = random.choice(['M', 'F', 'Other'])
-        
+
+        accepted_items = [str(x) for x in (user_profile or {}).get('accepted_items', []) if x is not None]
+        mentioned_items = [str(x) for x in (user_profile or {}).get('mentioned_items', []) if x is not None]
+        for item_id in accepted_items + mentioned_items:
+            if item_id not in self.preferences:
+                self.preferences.append(item_id)
+
+        self.accepted_items: Set[str] = set(accepted_items)
+        self.mentioned_items: Set[str] = set(mentioned_items)
+        self.preference_categories: Set[str] = set(str(x) for x in (user_profile or {}).get('preferred_categories', []) if x)
+        self.preference_genres: Set[str] = set(str(x) for x in (user_profile or {}).get('preferred_genres', []) if x)
+
+        # Recover taxonomy from preference items when caller did not provide it explicitly.
+        for item_id in self.preferences:
+            item = self.item_catalog.get_item(item_id)
+            if not item:
+                continue
+            category = item.get('category')
+            if category:
+                self.preference_categories.add(str(category))
+            genres = item.get('genres', item.get('genre', []))
+            if isinstance(genres, str):
+                genres = [g.strip() for g in genres.split('|') if g.strip()]
+            for genre in genres if isinstance(genres, list) else []:
+                self.preference_genres.add(str(genre))
+
         self.liked_items = []
         self.disliked_items = []
-        self.patience = random.randint(10, 20)
-        self.acceptance_threshold = random.uniform(0.6, 0.9)
+        self.patience = random.randint(12, 20)
+        base_thresh = 0.5 if self.preferences else 0.58
+        self.acceptance_threshold = random.uniform(base_thresh, min(base_thresh + 0.18, 0.74))
+
     
     def respond_to_recommendation(self, items: List[str], turn: int) -> Dict:
-        """Respond to system recommendation"""
+        """Respond to system recommendation using exact-match and taxonomy-aware relevance."""
         if not items:
             return {'action': 'reject', 'feedback': 'No items provided'}
-        
-        # Check patience
+
         if turn >= self.patience:
             return {'action': 'leave', 'feedback': 'Too many turns'}
-        
-        # Compute relevance scores
+
+        items = [str(x) for x in items]
+
+        # Strong positive signal if the system recommends an explicitly accepted item.
+        accepted_overlap = [item_id for item_id in items if item_id in self.accepted_items]
+        if accepted_overlap:
+            chosen = accepted_overlap[0]
+            self.liked_items.append(chosen)
+            return {
+                'action': 'accept',
+                'item': chosen,
+                'feedback': f'I would watch {chosen}',
+                'score': 1.0,
+            }
+
         scores = []
         for item_id in items:
             score = self.compute_relevance(item_id)
             scores.append((item_id, score))
-        
-        # Get best item
-        best_item, best_score = max(scores, key=lambda x: x[1])
-        
-        # Decision
-        if best_score >= self.acceptance_threshold:
+
+        scores.sort(key=lambda x: x[1], reverse=True)
+        best_item, best_score = scores[0]
+        avg_top = float(np.mean([s for _, s in scores[: min(3, len(scores))]]))
+
+        if best_score >= self.acceptance_threshold or avg_top >= (self.acceptance_threshold + 0.05):
             self.liked_items.append(best_item)
             return {
                 'action': 'accept',
                 'item': best_item,
                 'feedback': f'I like {best_item}!',
-                'score': best_score
+                'score': best_score,
             }
-        elif best_score >= 0.4:
+        if best_score >= 0.36 or avg_top >= 0.32:
+            matched_item = self.item_catalog.get_item(best_item) or {}
+            matched_category = matched_item.get('category', 'that kind of movie')
             return {
                 'action': 'ask_more',
-                'feedback': f'Tell me more about {best_item}',
-                'score': best_score
+                'feedback': f'Tell me more about the {matched_category} option {best_item}',
+                'score': best_score,
             }
-        else:
-            self.disliked_items.extend(items)
-            return {
-                'action': 'reject',
-                'feedback': 'These don\'t match my preferences',
-                'score': best_score
-            }
+
+        self.disliked_items.extend(items)
+        return {
+            'action': 'reject',
+            'feedback': 'These do not match what I am looking for',
+            'score': best_score,
+        }
+
     
     def compute_relevance(self, item_id: str) -> float:
-        """Compute relevance score for an item"""
+        """Compute a richer relevance score using exact matches and genre/category overlap."""
+        item_id = str(item_id)
         item = self.item_catalog.get_item(item_id)
         if not item:
             return 0.0
-        
+
         score = 0.0
-        
-        # Preference match
+        item_category = str(item.get('category', 'Unknown'))
+        item_genres = item.get('genres', item.get('genre', []))
+        if isinstance(item_genres, str):
+            item_genres = [g.strip() for g in item_genres.split('|') if g.strip()]
+        item_genres = set(str(g) for g in item_genres if g)
+
         if item_id in self.preferences:
-            score += 0.6
-        
-        # Category match
-        item_category = item.get('category')
-        pref_categories = [
-            self.item_catalog.get_item(p).get('category')
-            for p in self.preferences
-            if self.item_catalog.get_item(p)
-        ]
-        if item_category in pref_categories:
-            score += 0.2
-        
-        # Rating bonus
-        rating = item.get('rating', 3.0)
-        score += (rating - 3.0) / 2.0 * 0.2  # Normalize 3-5 to 0-0.2
-        
-        # Random noise
-        score += random.uniform(-0.1, 0.1)
-        
+            score += 0.72
+        elif item_id in self.mentioned_items:
+            score += 0.18
+
+        if item_category in self.preference_categories:
+            score += 0.16
+        if item_genres:
+            overlap = len(item_genres.intersection(self.preference_genres))
+            score += min(0.18, 0.06 * overlap)
+
+        liked_taxonomy = set()
+        for liked_id in self.liked_items:
+            liked_item = self.item_catalog.get_item(liked_id)
+            if not liked_item:
+                continue
+            liked_taxonomy.add(str(liked_item.get('category', 'Unknown')))
+            liked_genres = liked_item.get('genres', liked_item.get('genre', []))
+            if isinstance(liked_genres, str):
+                liked_genres = [g.strip() for g in liked_genres.split('|') if g.strip()]
+            liked_taxonomy.update(str(g) for g in liked_genres if g)
+
+        if item_category in liked_taxonomy:
+            score += 0.08
+        if item_genres.intersection(liked_taxonomy):
+            score += 0.05
+
+        disliked_categories = set()
+        for disliked_id in self.disliked_items:
+            disliked_item = self.item_catalog.get_item(disliked_id)
+            if disliked_item:
+                disliked_categories.add(str(disliked_item.get('category', 'Unknown')))
+        if item_category in disliked_categories:
+            score -= 0.15
+
+        mentions = float(item.get('mentions', item.get('popularity', 0.0)) or 0.0)
+        # Mild popularity prior keeps reasonable mainstream titles acceptable while not dominating.
+        score += min(0.06, np.log1p(max(mentions, 0.0)) / 20.0)
+
+        score += random.uniform(-0.04, 0.04)
         return max(0.0, min(1.0, score))
+
     
-    def provide_preference(self) -> str:
-        """Provide a preference statement"""
-        if not self.preferences:
-            return "I'm looking for something good"
-        
-        item_id = random.choice(self.preferences)
-        item = self.item_catalog.get_item(item_id)
-        
-        if item:
-            category = item.get('category', 'items')
-            return f"I like {category} movies"
-        return "I'm looking for something interesting"
+        def provide_preference(self) -> str:
+            """Provide a more specific preference statement grounded in item taxonomy."""
+            if not self.preferences:
+                return "I'm looking for something good"
+
+            item_id = random.choice(self.preferences)
+            item = self.item_catalog.get_item(item_id)
+
+            if item:
+                category = str(item.get('category', 'movies'))
+                title = str(item.get('title', item_id))
+                genres = item.get('genres', item.get('genre', []))
+                if isinstance(genres, str):
+                    genres = [g.strip() for g in genres.split('|') if g.strip()]
+                genre_text = str(genres[0]) if isinstance(genres, list) and genres else category
+                return f"I usually enjoy {genre_text} or {category} movies like {title}"
+            return "I'm looking for something interesting"
 
 
 def create_dataloaders(config: Dict) -> Tuple[DataLoader, DataLoader, DataLoader]:

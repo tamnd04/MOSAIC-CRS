@@ -12,7 +12,7 @@ import os
 import json
 from tqdm import tqdm
 import wandb
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import argparse
 
 from mocrs import MOCRS
@@ -20,6 +20,7 @@ from policy_network import PPOAgent
 from environment import ConversationalRecommenderEnv, BatchedConversationalEnv
 from data_utils import ReDialDataset, ItemCatalog, apply_dataset_paths, create_dataloaders, create_stronger_validation_splits
 from off_policy_evaluation import off_policy_evaluate
+from test_evaluation_suite import evaluate_full_test_suite
 
 
 class MOCRSTrainer:
@@ -27,11 +28,88 @@ class MOCRSTrainer:
     Trainer for Multi-Objective CRS
     Handles both supervised pre-training and RL fine-tuning
     """
+
+    @staticmethod
+    def _infer_sentiment_label(utterance: str) -> int:
+        """Infer coarse sentiment label: 0=negative, 1=neutral, 2=positive."""
+        text = str(utterance or '').lower()
+        pos_markers = ['love', 'like', 'great', 'awesome', 'good', 'yes', 'thanks', 'enjoy']
+        neg_markers = ['hate', 'dislike', 'bad', 'awful', 'terrible', 'no', 'boring', 'worse']
+
+        pos = sum(1 for token in pos_markers if token in text)
+        neg = sum(1 for token in neg_markers if token in text)
+
+        if pos > neg:
+            return 2
+        if neg > pos:
+            return 0
+        return 1
+
+    @staticmethod
+    def _build_static_features_from_profile(profile: Dict, feature_dim: int) -> np.ndarray:
+        """Encode user profile into deterministic static feature vector."""
+        vec = np.zeros(feature_dim, dtype=np.float32)
+
+        age_map = {
+            '18-25': 0.2,
+            '26-35': 0.4,
+            '26-40': 0.4,
+            '36-45': 0.6,
+            '40+': 0.8,
+            '46-55': 0.8,
+            '55+': 1.0,
+        }
+
+        gender = str(profile.get('gender', 'U')).upper()
+        prefs = profile.get('preferences', [])
+        pref_count = len(prefs) if isinstance(prefs, list) else 0
+
+        vec[0] = age_map.get(str(profile.get('age_group', 'unknown')), 0.5)
+        vec[1] = 1.0 if gender == 'F' else 0.0
+        vec[2] = 1.0 if gender == 'M' else 0.0
+        vec[3] = min(pref_count, 20) / 20.0
+
+        return vec
+
+    @staticmethod
+    def _extract_preference_signal(conversation: Dict) -> float:
+        """Compute preference supervision signal from accepted/recommended overlap."""
+        turns = conversation.get('turns', []) if isinstance(conversation, dict) else []
+        accepted_items = set(str(x) for x in conversation.get('accepted_items', []) if x is not None)
+
+        mentioned_items = []
+        for turn in turns:
+            if not isinstance(turn, dict):
+                continue
+            for key in ['mentioned_items', 'items_mentioned', 'recommended_items']:
+                values = turn.get(key, [])
+                if isinstance(values, list):
+                    mentioned_items.extend(str(v) for v in values if v is not None)
+
+        unique_mentioned = set(mentioned_items)
+        if not accepted_items and not unique_mentioned:
+            return 0.0
+
+        overlap = len(accepted_items.intersection(unique_mentioned))
+        precision = overlap / max(len(unique_mentioned), 1)
+        recall = overlap / max(len(accepted_items), 1) if accepted_items else 0.0
+        if precision + recall == 0:
+            return 0.0
+        return float((2.0 * precision * recall) / (precision + recall))
     
     def __init__(self, config: Dict, use_wandb: bool = False):
         self.config = config
         self.use_wandb = use_wandb
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        if self.device.type == 'cuda':
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            try:
+                torch.set_float32_matmul_precision('high')
+            except Exception:
+                pass
         
         print(f"Using device: {self.device}")
         
@@ -59,13 +137,17 @@ class MOCRSTrainer:
         # Item catalog
         print("Loading item catalog...")
         self.item_catalog = ItemCatalog(config['data']['catalog_file'])
+        self._initialize_catalog_tensor_cache()
         
         # Training statistics
         self.train_stats = {
             'epoch': 0,
             'global_step': 0,
             'best_val_loss': float('inf'),
-            'best_val_metrics': {}
+            'best_val_metrics': {},
+            'supervised_history': [],
+            'rl_history': [],
+            'rl_eval_history': []
         }
         
         # Initialize wandb
@@ -76,6 +158,45 @@ class MOCRSTrainer:
                 config=config,
                 name=log_cfg.get('experiment_name', 'mocrs-baseline')
             )
+
+    def _initialize_catalog_tensor_cache(self) -> None:
+        """Build one-time catalog caches for faster candidate sampling on GPU."""
+        self._catalog_item_ids = list(self.item_catalog.item_ids)
+        self._catalog_size = len(self._catalog_item_ids)
+        self._catalog_title_by_id = {
+            str(item_id): str((self.item_catalog.get_item(item_id) or {}).get('title', item_id))
+            for item_id in self._catalog_item_ids
+        }
+        self._catalog_meta_by_id = {str(item_id): (self.item_catalog.get_item(item_id) or {}) for item_id in self._catalog_item_ids}
+        self._category_to_ids = {}
+        try:
+            self._category_to_ids = {str(cat): [str(x) for x in ids] for cat, ids in self.item_catalog.category_index.items()}
+        except Exception:
+            self._category_to_ids = {}
+        self._catalog_popularity_by_id = {
+            str(item_id): float((self._catalog_meta_by_id.get(str(item_id), {}) or {}).get('mentions', (self._catalog_meta_by_id.get(str(item_id), {}) or {}).get('popularity', 0.0)) or 0.0)
+            for item_id in self._catalog_item_ids
+        }
+        self._tail_sorted_item_ids = sorted(self._catalog_item_ids, key=lambda iid: (self._catalog_popularity_by_id.get(str(iid), 0.0), str(iid)))
+
+        self._fast_candidate_sampling = False
+        self._catalog_embedding_matrix = None
+
+        if self._catalog_size == 0:
+            return
+
+        emb_dim = int(self.config.get('model', {}).get('diversity_fairness', {}).get('item_embedding_dim', 128))
+        emb_matrix = np.zeros((self._catalog_size, emb_dim), dtype=np.float32)
+
+        for idx, item_id in enumerate(self._catalog_item_ids):
+            emb = np.asarray(self.item_catalog.get_item_embedding(item_id), dtype=np.float32).reshape(-1)
+            copy_dim = min(emb_dim, emb.shape[0])
+            if copy_dim > 0:
+                emb_matrix[idx, :copy_dim] = emb[:copy_dim]
+
+        self._catalog_embedding_matrix = torch.as_tensor(emb_matrix, dtype=torch.float32, device=self.device)
+        self._fast_candidate_sampling = True
+        print(f"Fast catalog cache ready: items={self._catalog_size}, emb_dim={emb_dim}")
     
     def supervised_pretrain(self, train_loader: DataLoader, 
                            val_loader: DataLoader, 
@@ -256,6 +377,7 @@ class MOCRSTrainer:
         top_k_recommendations = int(rl_cfg.get('top_k_recommendations', 10))
         log_interval = int(self.config['training'].get('log_interval', 10))
         eval_interval = int(rl_cfg.get('eval_interval_episodes', self.config['training'].get('eval_interval', 100)))
+        save_interval = int(rl_cfg.get('save_interval_episodes', self.config['training'].get('save_interval', 500)))
         val_file = self.config.get('data', {}).get('val_file')
         best_dr = -float('inf')
 
@@ -264,17 +386,22 @@ class MOCRSTrainer:
             raise ValueError("RL fine-tuning requires data.train_file with at least one conversation")
 
         target_conversations = len(conversations)
+        data_passes = 1
+        base_episodes = num_episodes
         if rl_cfg.get('use_full_dataset', True):
             max_convs = int(rl_cfg.get('max_conversations', target_conversations))
             target_conversations = min(target_conversations, max_convs)
 
         num_envs = self.config['training']['num_envs']
         if rl_cfg.get('use_full_dataset', True):
-            num_episodes = int(np.ceil(target_conversations / max(num_envs, 1)))
+            base_episodes = int(np.ceil(target_conversations / max(num_envs, 1)))
+            data_passes = max(1, int(rl_cfg.get('passes_over_data', 1)))
+            num_episodes = base_episodes * data_passes
 
         print(
             f"RL data setup: target_conversations={target_conversations}, "
-            f"num_envs={num_envs}, episodes={num_episodes}"
+            f"num_envs={num_envs}, episodes={num_episodes}, "
+            f"base_episodes={base_episodes}, passes_over_data={data_passes}"
         )
 
         reward_w_cfg = rl_cfg.get('reward_weights', {})
@@ -284,12 +411,26 @@ class MOCRSTrainer:
             reward_w_cfg.get('fairness', 0.2),
             reward_w_cfg.get('engagement', 0.15)
         ], dtype=np.float32)
+        eps_start = float(self.config['training'].get('epsilon_start', 0.2))
+        eps_end = float(self.config['training'].get('epsilon_end', 0.02))
+        eps_decay = float(self.config['training'].get('epsilon_decay', 0.997))
+        exploration_recommend_bias = float(rl_cfg.get('exploration_recommend_bias', 0.6))
+        min_turns_before_end = int(rl_cfg.get(
+            'min_turns_before_end',
+            self.config.get('environment', {}).get('min_turns_before_end', 0)
+        ))
+        min_recommendations_before_end = int(rl_cfg.get(
+            'min_recommendations_before_end',
+            self.config.get('environment', {}).get('min_recommendations_before_end', 0)
+        ))
+        fallback_action_before_end = int(rl_cfg.get('fallback_action_before_end', 1))
 
         seen_conversations = set()
         online_success_hist = []
         online_turns_hist = []
         online_diversity_hist = []
         online_fairness_hist = []
+        coverage_announced = False
         div_scale = float(self.config.get('environment', {}).get('reward_diversity_factor', 1.0))
         fair_scale = float(self.config.get('environment', {}).get('reward_fairness_factor', 1.0))
         pe_cfg = self.config.get('model', {}).get('personalization', {})
@@ -297,6 +438,7 @@ class MOCRSTrainer:
 
         episode_iterator = tqdm(range(num_episodes), desc='RL Fine-tuning', unit='ep')
         for episode in episode_iterator:
+            current_epsilon = max(eps_end, eps_start * (eps_decay ** episode))
             # Assign specific training conversations to this episode.
             user_profiles = []
             for env_idx in range(num_envs):
@@ -305,7 +447,7 @@ class MOCRSTrainer:
                 user_profiles.append(self._conversation_to_user_profile(conversations[conv_idx], conv_idx))
 
             states_np = env.reset(user_profiles=user_profiles)
-            states = torch.FloatTensor(states_np).to(self.device)
+            states = torch.as_tensor(states_np, dtype=torch.float32, device=self.device)
 
             traj_states = []
             traj_actions = []
@@ -320,52 +462,81 @@ class MOCRSTrainer:
             episode_diversity_values = []
             episode_fairness_values = []
             episode_action_counts = np.zeros(4, dtype=np.int32)
+            episode_recommend_counts = np.zeros(num_envs, dtype=np.int32)
             last_infos = []
 
             while not done and episode_length < rollout_horizon:
-                candidate_ids_batch, candidate_embeddings = self._sample_candidate_items(
-                    num_envs=len(states),
-                    candidate_pool_size=candidate_pool_size
-                )
+                current_conversations = [conversations[(episode * num_envs + env_idx) % target_conversations] for env_idx in range(num_envs)]
+                recommended_histories = [list(env.envs[env_idx].recommended_items) for env_idx in range(num_envs)]
 
                 with torch.no_grad():
-                    batch = self._create_rl_batch(
+                    batch = self._create_contextual_rl_batch(
                         states,
-                        candidate_embeddings,
-                        candidate_ids_batch,
-                        is_cold_start=(episode_length == 0),
-                        use_thompson_sampling=use_thompson_sampling
+                        current_conversations,
+                        step=episode_length,
+                        candidate_pool_size=candidate_pool_size,
+                        recommended_histories=recommended_histories,
+                        use_thompson_sampling=use_thompson_sampling,
+                        generate_explanations=False,
                     )
+                    candidate_ids_batch = batch['candidate_item_ids']
                     outputs = self.model(batch)
 
                     actions = outputs['actions']
                     log_probs = outputs['log_probs']
                     values = outputs['values']
+                    action_probs = outputs.get('action_probs')
                     reranked_indices = outputs.get('reranked_indices')
 
+                # Epsilon-greedy exploration prevents early collapse into a single action.
+                if current_epsilon > 0.0:
+                    random_mask = torch.rand(actions.shape, device=actions.device) < current_epsilon
+                    random_actions = torch.randint(0, 4, actions.shape, device=actions.device)
+
+                    if exploration_recommend_bias > 0.0:
+                        rec_mask = torch.rand(actions.shape, device=actions.device) < exploration_recommend_bias
+                        random_actions = torch.where(rec_mask, torch.ones_like(random_actions), random_actions)
+
+                    actions = torch.where(random_mask, random_actions, actions)
+
+                    if action_probs is not None:
+                        log_probs = torch.log(action_probs.gather(1, actions.unsqueeze(-1)).squeeze(-1) + 1e-10)
+
                 env_actions = self._build_env_actions(
-                    actions.cpu().numpy(),
+                    actions.detach().cpu().numpy(),
                     candidate_ids_batch,
                     reranked_indices,
-                    top_k=top_k_recommendations
+                    top_k=top_k_recommendations,
+                    current_turn=episode_length + 1,
+                    min_turns_before_end=min_turns_before_end,
+                    recommended_counts=episode_recommend_counts.tolist(),
+                    min_recommendations_before_end=min_recommendations_before_end,
+                    fallback_action_type=fallback_action_before_end,
                 )
 
-                for env_action in env_actions:
+                for env_idx, env_action in enumerate(env_actions):
                     action_type = int(env_action.get('action_type', 0))
                     if 0 <= action_type < 4:
                         episode_action_counts[action_type] += 1
+                    if action_type == 1 and env_action.get('items', []):
+                        episode_recommend_counts[env_idx] += 1
 
                 next_states_np, rewards_np, dones_np, infos = env.step(env_actions)
-                next_states = torch.FloatTensor(next_states_np).to(self.device)
+                logged_actions = np.asarray([self._infer_logged_action_for_step(conv, episode_length) for conv in current_conversations], dtype=np.int64)
+                chosen_actions_np = actions.detach().cpu().numpy().astype(np.int64)
+                match_bonus = np.where(chosen_actions_np == logged_actions, 0.35, -0.05).astype(np.float32)
+                recommend_without_context = np.where((chosen_actions_np == 1) & (logged_actions == 0), -0.35, 0.0).astype(np.float32)
+                rewards_np[:, 3] += match_bonus + recommend_without_context
+                next_states = torch.as_tensor(next_states_np, dtype=torch.float32, device=self.device)
                 last_infos = infos
 
                 # Trajectory storage for rollout-based PPO.
-                traj_states.append(states.detach().cpu())
-                traj_actions.append(actions.detach().cpu())
-                traj_log_probs.append(log_probs.detach().cpu())
-                traj_values.append(values.detach().cpu())
-                traj_rewards.append(torch.FloatTensor(rewards_np))
-                traj_dones.append(torch.FloatTensor(dones_np.astype(np.float32)))
+                traj_states.append(states.detach())
+                traj_actions.append(actions.detach())
+                traj_log_probs.append(log_probs.detach())
+                traj_values.append(values.detach())
+                traj_rewards.append(torch.as_tensor(rewards_np, dtype=torch.float32, device=self.device))
+                traj_dones.append(torch.as_tensor(dones_np.astype(np.float32), dtype=torch.float32, device=self.device))
 
                 scalar_rewards.append((rewards_np * reward_weights).sum(axis=1).mean())
                 episode_diversity_values.append(rewards_np[:, 1] / max(div_scale, 1e-8))
@@ -411,11 +582,30 @@ class MOCRSTrainer:
             online_diversity_hist.append(episode_diversity)
             online_fairness_hist.append(episode_fairness)
 
+            self.train_stats.setdefault('rl_history', []).append({
+                'episode': int(episode + 1),
+                'avg_reward': float(np.mean(scalar_rewards)) if scalar_rewards else 0.0,
+                'episode_length': int(episode_length),
+                'epsilon': float(current_epsilon),
+                'policy_loss': float(update_stats.get('policy_loss', 0.0)),
+                'value_loss': float(update_stats.get('value_loss', 0.0)),
+                'online_success': float(episode_success),
+                'online_turns': float(episode_turns_avg),
+                'online_diversity': float(episode_diversity),
+                'online_fairness': float(episode_fairness),
+                'seen_conversations': int(len(seen_conversations)),
+                'action_ask': float(action_ratios[0]),
+                'action_recommend': float(action_ratios[1]),
+                'action_clarify': float(action_ratios[2]),
+                'action_end': float(action_ratios[3]),
+            })
+
             if (episode + 1) % log_interval == 0:
                 print(
                     f"Episode {episode + 1}/{num_episodes}: "
                     f"Avg Reward={float(np.mean(scalar_rewards)):.3f}, "
                     f"Turns={episode_length}, "
+                    f"Eps={current_epsilon:.3f}, "
                     f"Policy Loss={update_stats['policy_loss']:.4f}, "
                     f"Seen Conversations={len(seen_conversations)}/{target_conversations}, "
                     f"Online Success={episode_success:.3f}, Online Turns={episode_turns_avg:.2f}, "
@@ -448,7 +638,7 @@ class MOCRSTrainer:
                     'online/actions/end_ratio': float(action_ratios[3])
                 })
 
-            if (episode + 1) % self.config['training'].get('save_interval', 500) == 0:
+            if save_interval > 0 and (episode + 1) % save_interval == 0:
                 self.save_checkpoint(f'rl_checkpoint_ep{episode+1}.pt')
 
             if eval_interval > 0 and (episode + 1) % eval_interval == 0 and val_file and os.path.exists(val_file):
@@ -478,14 +668,34 @@ class MOCRSTrainer:
                         'eval/dm': float(ope_metrics.get('dm', 0.0))
                     })
 
+                self.train_stats.setdefault('rl_eval_history', []).append({
+                    'episode': int(episode + 1),
+                    'dr': float(dr_score),
+                    'ips': float(ips_val),
+                    'snips': float(snips_val),
+                    'dm': float(dm_val),
+                    'dr_ci_low': float(dr_ci_low),
+                    'dr_ci_high': float(dr_ci_high),
+                    'dm_ci_low': float(dm_ci_low),
+                    'dm_ci_high': float(dm_ci_high),
+                    'ci_level': float(ci_level),
+                })
+
                 if dr_score > best_dr:
                     best_dr = dr_score
                     self.save_checkpoint('best_rl_model.pt')
                     print(f"  [OK] New best RL checkpoint saved (DR={best_dr:.6f})")
 
-            if rl_cfg.get('use_full_dataset', True) and len(seen_conversations) >= target_conversations:
-                print(f"Covered all configured RL conversations ({target_conversations}).")
-                break
+            if rl_cfg.get('use_full_dataset', True) and len(seen_conversations) >= target_conversations and not coverage_announced:
+                if data_passes > 1:
+                    print(
+                        f"Covered all configured RL conversations ({target_conversations}) once; "
+                        f"continuing remaining passes (total episodes={num_episodes})."
+                    )
+                else:
+                    print(f"Covered all configured RL conversations ({target_conversations}).")
+                    break
+                coverage_announced = True
         
         env.close()
         print("\n[OK] RL fine-tuning completed!")
@@ -610,8 +820,217 @@ class MOCRSTrainer:
             'preferences': deduped_preferences[:20]
         }
 
+
+    def _collect_turn_items(self, conversation: Dict, max_turn_index: int = None) -> List[str]:
+        turns = conversation.get('turns', []) if isinstance(conversation, dict) else []
+        if max_turn_index is not None:
+            turns = turns[: max_turn_index + 1]
+        items = []
+        for turn in turns:
+            if not isinstance(turn, dict):
+                continue
+            for key in ['mentioned_items', 'items_mentioned', 'recommended_items']:
+                vals = turn.get(key, [])
+                if isinstance(vals, list):
+                    items.extend(str(v) for v in vals if v is not None)
+        return items
+
+    def _get_conversation_context(self, conversation: Dict, step: int) -> Tuple[str, List[str], Dict]:
+        turns = conversation.get('turns', []) if isinstance(conversation, dict) else []
+        user_turns = [t for t in turns if isinstance(t, dict) and str(t.get('speaker', 'user')).lower() != 'system']
+        chosen_user_turn = user_turns[min(step, len(user_turns) - 1)] if user_turns else {}
+
+        upto_idx = len(turns) - 1
+        if chosen_user_turn:
+            for idx, turn in enumerate(turns):
+                if turn is chosen_user_turn:
+                    upto_idx = idx
+                    break
+
+        history_texts = []
+        for turn in turns[max(0, upto_idx - 5): upto_idx + 1]:
+            if not isinstance(turn, dict):
+                continue
+            text = str(turn.get('user_utterance', turn.get('utterance', '')) or '').strip()
+            if text:
+                history_texts.append(text)
+
+        utterance = str(chosen_user_turn.get('user_utterance', '') or '').strip()
+        if not utterance and history_texts:
+            utterance = history_texts[-1]
+        if not utterance:
+            utterance = 'I am looking for a movie recommendation'
+
+        profile = conversation.get('user_profile', {}) if isinstance(conversation, dict) else {}
+        demographics = {
+            'age_group': profile.get('age_group', '26-35'),
+            'gender': profile.get('gender', 'U'),
+        }
+        return utterance, history_texts, demographics
+
+    def _infer_logged_action_for_step(self, conversation: Dict, step: int) -> int:
+        turns = conversation.get('turns', []) if isinstance(conversation, dict) else []
+        system_turns = [t for t in turns if isinstance(t, dict) and str(t.get('speaker', 'user')).lower() == 'system']
+        if not system_turns:
+            return 0
+        turn = system_turns[min(step, len(system_turns) - 1)]
+        intent = str(turn.get('intent', '')).lower()
+        if 'goodbye' in intent:
+            return 3
+        if 'recommend' in intent:
+            return 1
+        if 'ask_question' in intent or 'provide_preference' in intent:
+            return 0
+        return 2
+
+    def _build_candidate_ids_for_conversation(self, conversation: Dict, candidate_pool_size: int, step: int) -> List[str]:
+        turns = conversation.get('turns', []) if isinstance(conversation, dict) else []
+        observed_items = self._collect_turn_items(conversation, max_turn_index=min(len(turns) - 1, 2 * step + 1) if turns else None)
+        accepted_items = [str(x) for x in conversation.get('accepted_items', []) if x is not None]
+        profile = conversation.get('user_profile', {}) if isinstance(conversation, dict) else {}
+        preference_items = [str(x) for x in profile.get('preferences', [])] if isinstance(profile.get('preferences', []), list) else []
+
+        preferred_categories = []
+        for item_id in accepted_items + observed_items + preference_items:
+            item = self.item_catalog.get_item(item_id)
+            if item:
+                category = str(item.get('category', 'Unknown'))
+                if category not in preferred_categories:
+                    preferred_categories.append(category)
+
+        candidate_ids = []
+        seen = set()
+        for item_id in accepted_items + preference_items + observed_items:
+            item_id = str(item_id)
+            if item_id in self.item_catalog.catalog and item_id not in seen:
+                candidate_ids.append(item_id)
+                seen.add(item_id)
+            if len(candidate_ids) >= candidate_pool_size:
+                return candidate_ids[:candidate_pool_size]
+
+        for category in preferred_categories:
+            for item_id in self._category_to_ids.get(category, []):
+                if item_id not in seen:
+                    candidate_ids.append(item_id)
+                    seen.add(item_id)
+                if len(candidate_ids) >= int(candidate_pool_size * 0.7):
+                    break
+            if len(candidate_ids) >= int(candidate_pool_size * 0.7):
+                break
+
+        tail_target = max(10, int(candidate_pool_size * 0.2))
+        tail_added = 0
+        for item_id in self._tail_sorted_item_ids:
+            if item_id not in seen:
+                candidate_ids.append(item_id)
+                seen.add(item_id)
+                tail_added += 1
+            if tail_added >= tail_target or len(candidate_ids) >= candidate_pool_size:
+                break
+
+        if len(candidate_ids) < candidate_pool_size:
+            for item_id in self.item_catalog.sample_items(candidate_pool_size):
+                item_id = str(item_id)
+                if item_id not in seen:
+                    candidate_ids.append(item_id)
+                    seen.add(item_id)
+                if len(candidate_ids) >= candidate_pool_size:
+                    break
+
+        return candidate_ids[:candidate_pool_size]
+
+    def _create_contextual_rl_batch(self, states: torch.Tensor, conversations: List[Dict], step: int,
+                                    candidate_pool_size: int, recommended_histories: List[List[str]] = None,
+                                    use_thompson_sampling: bool = None, generate_explanations: bool = False) -> Dict:
+        batch_size = states.shape[0]
+        static_dim = self.config['model']['personalization']['static_features_dim']
+        static_features = torch.zeros(batch_size, static_dim, device=self.device)
+        copy_dim = min(states.shape[1], static_dim)
+        static_features[:, :copy_dim] = states[:, :copy_dim]
+
+        utterances = []
+        candidate_ids_batch = []
+        candidate_names_batch = []
+        candidate_meta_batch = []
+        candidate_embeddings = []
+        user_demographics = []
+        preferred_reference_titles = []
+        preferred_categories = []
+
+        for i, conversation in enumerate(conversations):
+            utterance, history_texts, demographics = self._get_conversation_context(conversation, step)
+            utterance_context = ' [SEP] '.join(history_texts[-3:]) if history_texts else utterance
+            utterances.append(utterance_context)
+            user_demographics.append(demographics)
+
+            candidate_ids = self._build_candidate_ids_for_conversation(conversation, candidate_pool_size, step)
+            candidate_ids_batch.append(candidate_ids)
+            candidate_embeddings.append([self.item_catalog.get_item_embedding(item_id) for item_id in candidate_ids])
+
+            metas = []
+            names = []
+            for item_id in candidate_ids:
+                meta = dict(self._catalog_meta_by_id.get(str(item_id), {}) or {})
+                meta.setdefault('title', self._catalog_title_by_id.get(str(item_id), str(item_id)))
+                meta.setdefault('category', meta.get('genre', 'Unknown'))
+                meta.setdefault('genre', meta.get('category', 'Unknown'))
+                if 'genres' not in meta:
+                    genre = meta.get('genre', 'Unknown')
+                    meta['genres'] = [g.strip() for g in str(genre).split('|') if g.strip()]
+                metas.append(meta)
+                names.append(str(meta.get('title', item_id)))
+            candidate_meta_batch.append(metas)
+            candidate_names_batch.append(names)
+
+            accepted_items = [str(x) for x in conversation.get('accepted_items', []) if x is not None]
+            preferred_reference_titles.append([
+                self._catalog_title_by_id.get(item_id, item_id)
+                for item_id in accepted_items[:3]
+            ])
+
+            cats = []
+            for item_id in accepted_items:
+                meta = self._catalog_meta_by_id.get(item_id, {}) or {}
+                category = str(meta.get('category', 'Unknown'))
+                if category not in cats:
+                    cats.append(category)
+            preferred_categories.append(cats)
+
+        candidate_embeddings_t = torch.as_tensor(np.asarray(candidate_embeddings, dtype=np.float32), device=self.device)
+        batch = {
+            'utterances': utterances,
+            'dialogue_history': None,
+            'static_features': static_features,
+            'candidate_items': candidate_embeddings_t,
+            'candidate_item_ids': candidate_ids_batch,
+            'candidate_item_names': candidate_names_batch,
+            'candidate_item_metadata': candidate_meta_batch,
+            'preferred_reference_titles': preferred_reference_titles,
+            'preferred_categories': preferred_categories,
+            'recommended_history': recommended_histories or [[] for _ in range(batch_size)],
+            'generate_explanations': bool(generate_explanations),
+            'is_cold_start': torch.full((batch_size,), bool(step == 0), dtype=torch.bool, device=self.device),
+            'use_thompson_sampling': bool(use_thompson_sampling) if use_thompson_sampling is not None else None,
+            'user_demographics': user_demographics,
+        }
+        return batch
     def _sample_candidate_items(self, num_envs: int, candidate_pool_size: int):
         """Sample candidate items and embeddings for each parallel environment."""
+        if self._fast_candidate_sampling and self._catalog_embedding_matrix is not None:
+            sample_size = min(int(candidate_pool_size), int(self._catalog_size))
+            sampled_rows = []
+            for _ in range(num_envs):
+                # Match original behavior: sample unique candidate ids per environment.
+                sampled_rows.append(np.random.choice(self._catalog_size, size=sample_size, replace=False).astype(np.int64))
+            sampled_idx = np.stack(sampled_rows, axis=0)
+            sampled_idx_t = torch.as_tensor(sampled_idx, dtype=torch.long, device=self.device)
+            candidate_embeddings = self._catalog_embedding_matrix[sampled_idx_t]
+            candidate_ids_batch = [
+                [self._catalog_item_ids[int(idx)] for idx in row]
+                for row in sampled_idx
+            ]
+            return candidate_ids_batch, candidate_embeddings
+
         candidate_ids_batch = []
         candidate_embeddings = []
 
@@ -627,23 +1046,18 @@ class MOCRSTrainer:
     def _create_rl_batch(self, states: torch.Tensor, candidate_embeddings: torch.Tensor,
                          candidate_ids_batch: List[List[str]] = None,
                          is_cold_start: bool = False,
-                         use_thompson_sampling: bool = None) -> Dict:
+                         use_thompson_sampling: bool = None,
+                         generate_explanations: bool = False) -> Dict:
         """Create model batch for RL rollout with candidate item embeddings."""
         batch_size = states.shape[0]
 
         static_dim = self.config['model']['personalization']['static_features_dim']
-        static_features = torch.randn(batch_size, static_dim, device=self.device)
+        static_features = torch.zeros(batch_size, static_dim, device=self.device)
+        copy_dim = min(states.shape[1], static_dim)
+        static_features[:, :copy_dim] = states[:, :copy_dim]
 
         if candidate_ids_batch is None:
             candidate_ids_batch = [self.item_catalog.sample_items(candidate_embeddings.shape[1]) for _ in range(batch_size)]
-
-        candidate_item_names = []
-        for ids in candidate_ids_batch:
-            names = []
-            for item_id in ids:
-                item = self.item_catalog.get_item(item_id)
-                names.append(item.get('title', str(item_id)) if item else str(item_id))
-            candidate_item_names.append(names)
 
         return {
             'utterances': ['Current utterance'] * batch_size,
@@ -651,18 +1065,46 @@ class MOCRSTrainer:
             'static_features': static_features,
             'candidate_items': candidate_embeddings,
             'candidate_item_ids': candidate_ids_batch,
-            'candidate_item_names': candidate_item_names,
+            'candidate_item_names': None,
+            'generate_explanations': bool(generate_explanations),
             'is_cold_start': torch.full((batch_size,), bool(is_cold_start), dtype=torch.bool, device=self.device),
             'use_thompson_sampling': bool(use_thompson_sampling) if use_thompson_sampling is not None else None,
             'user_demographics': [{'age_group': '26-35', 'gender': 'U'} for _ in range(batch_size)]
         }
 
     def _build_env_actions(self, actions: np.ndarray, candidate_ids_batch: List[List[str]],
-                           reranked_indices: torch.Tensor, top_k: int = 10) -> List[Dict]:
+                           reranked_indices: torch.Tensor, top_k: int = 10,
+                           current_turn: int = None,
+                           min_turns_before_end: int = 0,
+                           recommended_counts: List[int] = None,
+                           min_recommendations_before_end: int = 0,
+                           fallback_action_type: int = 0) -> List[Dict]:
         """Convert model outputs into environment actions with top-k reranked recommendations."""
         env_actions = []
         for i, action in enumerate(actions):
             action_type = int(np.clip(action, 0, 3))
+
+            rec_count_i = 0
+            if isinstance(recommended_counts, list) and i < len(recommended_counts):
+                rec_count_i = int(recommended_counts[i])
+
+            # Prevent early collapse into immediate conversation termination.
+            if (
+                action_type == 3
+                and (
+                    (
+                        min_turns_before_end > 0
+                        and current_turn is not None
+                        and int(current_turn) < int(min_turns_before_end)
+                    )
+                    or (
+                        min_recommendations_before_end > 0
+                        and rec_count_i < int(min_recommendations_before_end)
+                    )
+                )
+            ):
+                action_type = int(np.clip(fallback_action_type, 0, 3))
+
             recommended_items = []
 
             if action_type == 1:  # recommend
@@ -771,22 +1213,26 @@ class MOCRSTrainer:
     def _create_batch_from_state(self, states: torch.Tensor) -> Dict:
         """Create model batch from environment states"""
         batch_size = states.shape[0]
-        
-        # Dummy batch (in practice, would maintain conversation context)
+
+        static_dim = self.config['model']['personalization']['static_features_dim']
+        static_features = torch.zeros(batch_size, static_dim, device=self.device)
+
+        # Use available environment state as weak profile signal instead of random features.
+        copy_dim = min(states.shape[1], static_dim)
+        static_features[:, :copy_dim] = states[:, :copy_dim]
+
         batch = {
             'utterances': ['Current utterance'] * batch_size,
             'dialogue_history': None,
-            'static_features': torch.randn(batch_size, 
-                                          self.config['model']['personalization']['static_features_dim']).to(self.device),
+            'static_features': static_features,
             'candidate_items': None
         }
         
         return batch
     
     def _batch_to_device(self, batch) -> Dict:
-        """Preprocess and move batch to device"""
+        """Preprocess and move batch to device."""
         from data_utils import ConversationBatch
-        import random
         
         if isinstance(batch, ConversationBatch):
             conversations = batch.conversations
@@ -797,6 +1243,8 @@ class MOCRSTrainer:
         utterances = []
         intents = []
         static_features_list = []
+        sentiment_labels = []
+        preference_labels = []
         
         intent_map = {'general': 0, 'recommend': 1, 'provide_preference': 2, 'ask_question': 3, 'provide_information': 4}
         
@@ -811,6 +1259,22 @@ class MOCRSTrainer:
                 # Get intent
                 intent = last_turn.get('intent', 'general')
                 intents.append(intent_map.get(intent, 0))
+
+                sentiment_labels.append(self._infer_sentiment_label(utterance))
+            else:
+                utterances.append('')
+                intents.append(0)
+                sentiment_labels.append(1)
+
+            profile = conv.get('user_profile', {}) if isinstance(conv, dict) else {}
+            static_features_list.append(
+                self._build_static_features_from_profile(
+                    profile,
+                    self.config['model']['personalization']['static_features_dim']
+                )
+            )
+
+            preference_labels.append(self._extract_preference_signal(conv))
         
         # Create batch dictionary
         batch_data = {
@@ -819,21 +1283,16 @@ class MOCRSTrainer:
             'utterances': utterances,  # Required by forward()
         }
         
-        # Create static features (batch_size, static_features_dim=64)
-        # Features: age, gender, preference diversity, activity level, etc.
-        static_features = torch.randn(len(conversations), 64).to(self.device)
+        static_features = torch.as_tensor(np.asarray(static_features_list, dtype=np.float32), device=self.device)
         batch_data['static_features'] = static_features
         
         # Create intent labels for classification
         if intents:
             batch_data['intent_labels'] = torch.tensor(intents, dtype=torch.long).to(self.device)
         
-        # Create dummy sentiment labels
-        sentiment_labels = [random.randint(0, 2) for _ in conversations]
         batch_data['sentiment_labels'] = torch.tensor(sentiment_labels, dtype=torch.long).to(self.device)
         
-        # Create preference scores
-        pref_scores = torch.rand(len(conversations), 1).to(self.device)
+        pref_scores = torch.as_tensor(np.asarray(preference_labels, dtype=np.float32), device=self.device).unsqueeze(-1)
         batch_data['preference_labels'] = pref_scores
         
         # Create dialogue history (optional, but some methods might use it)
@@ -861,6 +1320,17 @@ class MOCRSTrainer:
                 **{f'train/{k}': v for k, v in train_metrics.items()},
                 **{f'val/{k}': v for k, v in val_metrics.items()}
             })
+
+        self.train_stats.setdefault('supervised_history', []).append({
+            'epoch': int(epoch + 1),
+            'train_total_loss': float(train_metrics.get('total_loss', 0.0)),
+            'train_intent_loss': float(train_metrics.get('intent_loss', 0.0)),
+            'train_sentiment_loss': float(train_metrics.get('sentiment_loss', 0.0)),
+            'train_preference_loss': float(train_metrics.get('preference_loss', 0.0)),
+            'val_total_loss': float(val_metrics.get('total_loss', 0.0)),
+            'val_intent_accuracy': float(val_metrics.get('intent_accuracy', 0.0)),
+            'val_sentiment_accuracy': float(val_metrics.get('sentiment_accuracy', 0.0)),
+        })
 
     def _get_dataset_checkpoint_dir(self) -> str:
         """Return dataset-specific checkpoint directory under logging.save_dir."""
@@ -905,6 +1375,9 @@ class MOCRSTrainer:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if 'train_stats' in checkpoint:
             self.train_stats = checkpoint['train_stats']
+        self.train_stats.setdefault('supervised_history', [])
+        self.train_stats.setdefault('rl_history', [])
+        self.train_stats.setdefault('rl_eval_history', [])
         print(f"Loaded checkpoint: {checkpoint_path}")
 
 
@@ -983,9 +1456,12 @@ def main():
     print(f"  val_file: {config['data']['val_file']}")
     print(f"  test_file: {config['data']['test_file']}")
 
-    if args.refresh_splits and config.get('data', {}).get('stronger_validation', {}).get('enabled', False):
+    stronger_val_enabled = bool(config.get('data', {}).get('stronger_validation', {}).get('enabled', False))
+    if args.refresh_splits and stronger_val_enabled:
         split_stats = create_stronger_validation_splits(config)
         print(f"Regenerated splits: train={split_stats['train']}, val={split_stats['val']}, test={split_stats['test']}")
+    elif args.refresh_splits and not stronger_val_enabled:
+        print("[INFO] --refresh_splits ignored because data.stronger_validation.enabled is false; using fixed existing splits.")
     
     # Create trainer
     trainer = MOCRSTrainer(config, use_wandb=args.wandb)
@@ -1043,14 +1519,60 @@ def main():
         if not args.checkpoint:
             raise ValueError("--mode test requires --checkpoint")
 
-        val_file = config.get('data', {}).get('val_file')
         test_file = config.get('data', {}).get('test_file')
-        val_metrics = _print_ope('validation', val_file)
         test_metrics = _print_ope('test', test_file)
-        if val_metrics is not None:
-            eval_report['ope']['validation'] = val_metrics
         if test_metrics is not None:
             eval_report['ope']['test'] = test_metrics
+
+        full_test_eval = evaluate_full_test_suite(
+            trainer=trainer,
+            config=config,
+            episodes=int(config.get('evaluation', {}).get('num_eval_episodes', 80)),
+            fairness_k_values=[5, 10, 20],
+        )
+        eval_report['test_evaluation'] = full_test_eval
+
+        rec = full_test_eval.get('recommendation_results', {})
+        conv = full_test_eval.get('conversation_results', {})
+        div = full_test_eval.get('diversity', {})
+        fair = full_test_eval.get('fairness', {})
+        transp = full_test_eval.get('transparency', {})
+
+        print("Full test evaluation metrics:")
+        print(
+            f"  Rec: R@10={float(rec.get('Recall@10', 0.0)):.4f}, "
+            f"R@50={float(rec.get('Recall@50', 0.0)):.4f}, "
+            f"MRR@10={float(rec.get('MRR@10', 0.0)):.4f}, "
+            f"MRR@50={float(rec.get('MRR@50', 0.0)):.4f}, "
+            f"NDCG@10={float(rec.get('NDCG@10', 0.0)):.4f}, "
+            f"NDCG@50={float(rec.get('NDCG@50', 0.0)):.4f}"
+        )
+        print(
+            f"  Conv: Dist-2={float(conv.get('Dist-2', 0.0)):.4f}, Dist-3={float(conv.get('Dist-3', 0.0)):.4f}, "
+            f"BLEU-2={float(conv.get('BLEU-2', 0.0)):.4f}, BLEU-3={float(conv.get('BLEU-3', 0.0)):.4f}, "
+            f"SR@5={float(conv.get('SR@5', 0.0)):.4f}, SR@10={float(conv.get('SR@10', 0.0)):.4f}, "
+            f"SR@20={float(conv.get('SR@20', 0.0)):.4f}, AT={float(conv.get('AT', 0.0)):.2f}"
+        )
+        print(
+            f"  Diversity@10: ILD={float(div.get('ILD@10', 0.0)):.4f}, "
+            f"GenreCov={float(div.get('GenreCoverage@10', 0.0)):.4f}, "
+            f"CategoryCov={float(div.get('CategoryCoverage@10', 0.0)):.4f}, "
+            f"CalErr={float(div.get('CalibrationError@10', 0.0)):.4f}"
+        )
+        print(
+            f"  Fairness@10: A={float(fair.get('A@10', 0.0)):.2f}, "
+            f"G={float(fair.get('G@10', 0.0)):.4f}, L={float(fair.get('L@10', 0.0)):.4f}, "
+            f"D={float(fair.get('D@10', 0.0)):.4f}, Entropy={float(fair.get('Entropy@10', 0.0)):.4f}"
+        )
+        print(
+            f"  Transparency: grounded={float(transp.get('groundedness_factual_consistency', 0.0)):.4f}, "
+            f"halluc={float(transp.get('deception_hallucination_rate', 0.0)):.4f}, "
+            f"persuasive={float(transp.get('persuasiveness_score', 0.0)):.4f}, "
+            f"transparency={float(transp.get('transparency_score', 0.0)):.4f}, "
+            f"trust={float(transp.get('trust_score', 0.0)):.4f}, "
+            f"useful={float(transp.get('usefulness_score', 0.0)):.4f}"
+        )
+
         _save_eval_report()
 
         print("\n" + "="*60)
