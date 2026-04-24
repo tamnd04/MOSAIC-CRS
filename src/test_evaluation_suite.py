@@ -380,20 +380,17 @@ def _simulate_online_metrics(
 ) -> Dict:
     env = ConversationalRecommenderEnv(config, trainer.item_catalog, mode='test')
 
-    rollout_horizon = int(config.get('training', {}).get('rl', {}).get('rollout_horizon', config['environment']['max_turns']))
-    candidate_pool_size = int(config.get('training', {}).get('rl', {}).get('candidate_pool_size', 100))
+    rl_cfg = config.get('training', {}).get('rl', {})
+    rollout_horizon = int(rl_cfg.get('rollout_horizon', config['environment']['max_turns']))
     action_counts = np.zeros(4, dtype=np.int64)
-
     max_k = max(fairness_ks)
 
-    # Conversation metrics
     success_flags = []
     turns_hist = []
     sr_by_k = {k: [] for k in fairness_ks}
     generated_texts = []
     reference_texts = []
 
-    # Transparency metrics
     expl_eval = ExplanationEvaluator()
     grounded_vals = []
     halluc_vals = []
@@ -402,19 +399,16 @@ def _simulate_online_metrics(
     trust_vals = []
     useful_vals = []
 
-    # Exposure-based diversity/fairness metrics.
     exposure_counts = {k: defaultdict(int) for k in fairness_ks}
     ild_values = {k: [] for k in fairness_ks}
     calib_values = {k: [] for k in fairness_ks}
     rec_genres = {k: set() for k in fairness_ks}
     rec_categories = {k: set() for k in fairness_ks}
 
-    # Catalog stats
     catalog_ids = list(trainer.item_catalog.catalog.keys())
     all_genres = set()
     all_categories = set()
     popularity_pairs = []
-
     for item_id in catalog_ids:
         item = trainer.item_catalog.get_item(item_id)
         all_genres.update(_extract_item_genres(item))
@@ -425,66 +419,64 @@ def _simulate_online_metrics(
     head_cut = max(1, int(0.2 * len(popularity_pairs)))
     head_items = set(item_id for item_id, _ in popularity_pairs[:head_cut])
 
+    ask_before_recommend_turns = int(rl_cfg.get('ask_before_recommend_turns', 1))
+    min_turns_before_end = int(rl_cfg.get('min_turns_before_end', config.get('environment', {}).get('min_turns_before_end', 0)))
+    min_recommendations_before_end = int(rl_cfg.get('min_recommendations_before_end', config.get('environment', {}).get('min_recommendations_before_end', 1)))
+    fallback_action_before_end = int(rl_cfg.get('fallback_action_before_end', 0))
+
     trainer.model.eval()
     with torch.no_grad():
         for ep in range(max(1, episodes)):
             conv = test_conversations[ep % len(test_conversations)] if test_conversations else {}
             profile = trainer._conversation_to_user_profile(conv, ep)
             user_dist = _conversation_interest_distribution(conv, trainer.item_catalog)
+            eval_batch, candidate_ids, _ = _build_eval_batch(conv, trainer.item_catalog, config, trainer.device, candidate_size=100)
+            candidate_embeddings = eval_batch['candidate_items']
+            candidate_ids_batch = eval_batch['candidate_item_ids']
 
             state_np = env.reset(user_profile=profile)
             done = False
             step = 0
             ep_success = False
             ep_success_turn = rollout_horizon + 1
+            recommended_count = 0
 
             while (not done) and step < rollout_horizon:
                 states = torch.FloatTensor(state_np).unsqueeze(0).to(trainer.device)
-
-                if hasattr(trainer, '_create_contextual_rl_batch'):
-                    batch = trainer._create_contextual_rl_batch(
-                        states,
-                        [conv],
-                        step=step,
-                        candidate_pool_size=candidate_pool_size,
-                        recommended_histories=[list(env.recommended_items)],
-                        use_thompson_sampling=False,
-                        generate_explanations=True,
-                    )
-                    candidate_ids_batch = batch['candidate_item_ids']
-                else:
-                    candidate_ids_batch, candidate_embeddings = trainer._sample_candidate_items(
-                        num_envs=1,
-                        candidate_pool_size=candidate_pool_size,
-                    )
-                    batch = trainer._create_rl_batch(
-                        states,
-                        candidate_embeddings,
-                        candidate_ids_batch,
-                        is_cold_start=(step == 0),
-                        use_thompson_sampling=False,
-                        generate_explanations=True,
-                    )
-                batch['deterministic_actions'] = True
+                batch = trainer._create_rl_batch(
+                    states,
+                    candidate_embeddings,
+                    candidate_ids_batch,
+                    user_profiles=[profile],
+                    is_cold_start=(step == 0),
+                    use_thompson_sampling=False,
+                    generate_explanations=True,
+                )
                 outputs = trainer.model(batch)
-                actions = torch.argmax(outputs.get('action_probs', torch.zeros(1, 4, device=trainer.device)), dim=-1)
+                action_probs = outputs.get('action_probs')
+                if action_probs is None:
+                    break
+                actions = torch.argmax(action_probs, dim=-1)
                 reranked_indices = outputs.get('reranked_indices')
-
                 env_action = trainer._build_env_actions(
                     actions.detach().cpu().numpy(),
                     candidate_ids_batch,
                     reranked_indices,
                     top_k=max_k,
+                    current_turn=step + 1,
+                    min_turns_before_end=min_turns_before_end,
+                    recommended_counts=[recommended_count],
+                    min_recommendations_before_end=min_recommendations_before_end,
+                    fallback_action_type=fallback_action_before_end,
+                    ask_before_recommend_turns=ask_before_recommend_turns,
                 )[0]
 
                 action_type = int(env_action.get('action_type', 0))
                 if 0 <= action_type < 4:
                     action_counts[action_type] += 1
-
                 recommended_items = [str(x) for x in env_action.get('items', [])]
-
-                # Collect recommendation-conditioned metrics.
                 if action_type == 1 and recommended_items:
+                    recommended_count += 1
                     explanation_text = ''
                     if outputs.get('explanations'):
                         explanation_text = str(outputs['explanations'][0])
@@ -495,43 +487,32 @@ def _simulate_online_metrics(
                         topk = recommended_items[:k]
                         if not topk:
                             continue
-
                         for item_id in topk:
                             exposure_counts[k][item_id] += 1
                             item = trainer.item_catalog.get_item(item_id)
                             rec_genres[k].update(_extract_item_genres(item))
                             rec_categories[k].update(_extract_item_categories(item))
-
                         ild_values[k].append(_avg_ild(topk, trainer.item_catalog))
                         rec_dist = _list_category_distribution(topk, trainer.item_catalog)
                         calib_values[k].append(_calibration_error(user_dist, rec_dist))
 
-                    # Transparency metrics are scored on the first recommended item.
                     top_item = trainer.item_catalog.get_item(recommended_items[0]) if recommended_items else None
                     item_name = ''
                     item_cats = set()
                     if top_item:
                         item_name = str(top_item.get('title', ''))
                         item_cats = _extract_item_categories(top_item)
-
                     if explanation_text:
                         eval_scores = expl_eval.evaluate(explanation_text, {'name': item_name})
                         mention_item = bool(item_name and item_name.lower() in explanation_text.lower())
                         mention_cat = any(cat.lower() in explanation_text.lower() for cat in item_cats)
                         grounded = 1.0 if (mention_item or mention_cat) else 0.0
-
                         placeholder_flag = ('item_' in explanation_text.lower()) or ('unknown' in explanation_text.lower())
                         halluc = 1.0 if (grounded < 0.5 or placeholder_flag) else 0.0
-
                         persuasive = float(eval_scores.get('overall', 0.0))
                         transparency = 0.5 * float(eval_scores.get('has_reasoning', False)) + 0.5 * float(mention_item)
                         trust = max(0.0, 1.0 - 0.7 * halluc + 0.3 * grounded)
-                        usefulness = (
-                            0.4 * float(eval_scores.get('has_reasoning', False))
-                            + 0.3 * float(eval_scores.get('not_generic', False))
-                            + 0.3 * float(eval_scores.get('length_ok', False))
-                        )
-
+                        usefulness = 0.4 * float(eval_scores.get('has_reasoning', False)) + 0.3 * float(eval_scores.get('not_generic', False)) + 0.3 * float(eval_scores.get('length_ok', False))
                         grounded_vals.append(grounded)
                         halluc_vals.append(halluc)
                         persuasive_vals.append(persuasive)
@@ -542,23 +523,19 @@ def _simulate_online_metrics(
                 next_state, rewards, done, info = env.step(env_action)
                 step += 1
                 state_np = next_state
-
                 if done and bool(info.get('success', False)):
                     ep_success = True
                     ep_success_turn = int(info.get('turn', step))
 
-            final_turns = int(step)
             success_flags.append(1.0 if ep_success else 0.0)
-            turns_hist.append(float(final_turns))
+            turns_hist.append(float(step))
             for k in fairness_ks:
                 sr_by_k[k].append(1.0 if (ep_success and ep_success_turn <= k) else 0.0)
 
     total_actions = int(action_counts.sum())
     action_ratios = (action_counts / total_actions).tolist() if total_actions > 0 else [0.0, 0.0, 0.0, 0.0]
 
-    # Conversation text quality metrics.
-    bleu2 = []
-    bleu3 = []
+    bleu2, bleu3 = [], []
     for hyp, ref in zip(generated_texts, reference_texts):
         hyp_toks = _tokenize(hyp)
         ref_toks = _tokenize(ref)
@@ -579,18 +556,13 @@ def _simulate_online_metrics(
         'num_generated_explanations': int(len(generated_texts)),
     }
 
-    # Diversity + fairness from exposure distributions.
     diversity = {}
     fairness = {}
-
     id_to_pop = {item_id: pop for item_id, pop in popularity_pairs}
-    n_catalog = len(catalog_ids)
-
     for k in fairness_ks:
         counts_dict = exposure_counts[k]
         counts = np.array([float(counts_dict.get(item_id, 0.0)) for item_id in catalog_ids], dtype=np.float64)
         exposure_total = float(np.sum(counts))
-
         if exposure_total > 0:
             avg_pop = float(np.sum(np.array([id_to_pop[item_id] for item_id in catalog_ids]) * counts) / exposure_total)
             head_exposure = float(np.sum([counts_dict.get(item_id, 0.0) for item_id in head_items]))
@@ -599,12 +571,10 @@ def _simulate_online_metrics(
         else:
             avg_pop = 0.0
             diff = 0.0
-
         diversity[f'ILD@{k}'] = _safe_mean(ild_values[k])
         diversity[f'GenreCoverage@{k}'] = float(len(rec_genres[k]) / max(len(all_genres), 1))
         diversity[f'CategoryCoverage@{k}'] = float(len(rec_categories[k]) / max(len(all_categories), 1))
         diversity[f'CalibrationError@{k}'] = _safe_mean(calib_values[k])
-
         fairness[f'A@{k}'] = avg_pop
         fairness[f'G@{k}'] = _gini_from_counts(counts)
         fairness[f'L@{k}'] = _kl_to_uniform(counts)
@@ -634,9 +604,8 @@ def _simulate_online_metrics(
         'episodes': int(max(1, episodes)),
         'num_test_conversations': int(len(test_conversations)),
         'rollout_horizon': int(rollout_horizon),
-        'num_catalog_items': int(n_catalog),
+        'num_catalog_items': int(len(catalog_ids)),
     }
-
 
 def evaluate_full_test_suite(
     trainer,

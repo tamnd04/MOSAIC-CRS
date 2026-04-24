@@ -674,23 +674,23 @@ class UserSimulator:
         return max(0.0, min(1.0, score))
 
     
-        def provide_preference(self) -> str:
-            """Provide a more specific preference statement grounded in item taxonomy."""
-            if not self.preferences:
-                return "I'm looking for something good"
+    def provide_preference(self) -> str:
+        """Provide a more specific preference statement grounded in item taxonomy."""
+        if not self.preferences:
+            return "I'm looking for something good"
 
-            item_id = random.choice(self.preferences)
-            item = self.item_catalog.get_item(item_id)
+        item_id = random.choice(self.preferences)
+        item = self.item_catalog.get_item(item_id)
 
-            if item:
-                category = str(item.get('category', 'movies'))
-                title = str(item.get('title', item_id))
-                genres = item.get('genres', item.get('genre', []))
-                if isinstance(genres, str):
-                    genres = [g.strip() for g in genres.split('|') if g.strip()]
-                genre_text = str(genres[0]) if isinstance(genres, list) and genres else category
-                return f"I usually enjoy {genre_text} or {category} movies like {title}"
-            return "I'm looking for something interesting"
+        if item:
+            category = str(item.get('category', 'movies'))
+            title = str(item.get('title', item_id))
+            genres = item.get('genres', item.get('genre', []))
+            if isinstance(genres, str):
+                genres = [g.strip() for g in genres.split('|') if g.strip()]
+            genre_text = str(genres[0]) if isinstance(genres, list) and genres else category
+            return f"I usually enjoy {genre_text} or {category} movies like {title}"
+        return "I'm looking for something interesting"
 
 
 def create_dataloaders(config: Dict) -> Tuple[DataLoader, DataLoader, DataLoader]:

@@ -38,6 +38,9 @@ class ConversationalRecommenderEnv(gym.Env):
         self.min_turns_before_end = int(self.reward_config.get('min_turns_before_end', 0))
         self.min_recommendations_before_end = int(self.reward_config.get('min_recommendations_before_end', 0))
         self.early_end_penalty = float(self.reward_config.get('early_end_penalty', 0.0))
+        self.early_recommend_penalty = float(self.reward_config.get('early_recommend_penalty', 0.0))
+        self.reward_end_without_success = float(self.reward_config.get('reward_end_without_success', -2.0))
+        self.reward_end_without_recommendation = float(self.reward_config.get('reward_end_without_recommendation', -3.0))
         
         # Action space: [action_type, item_indices]
         # Action types: 0=ask_preference, 1=recommend, 2=clarify, 3=end
@@ -65,7 +68,6 @@ class ConversationalRecommenderEnv(gym.Env):
         self.conversation_success = False
         self.current_user_profile = {}
         self.non_recommend_streak = 0
-        self.preference_actions = 0
         
         # Statistics tracking
         self.episode_stats = {
@@ -84,7 +86,6 @@ class ConversationalRecommenderEnv(gym.Env):
         self.user_preferences = []
         self.conversation_success = False
         self.non_recommend_streak = 0
-        self.preference_actions = 0
         
         # Keep a copy for state construction/debugging
         self.current_user_profile = user_profile or {}
@@ -156,11 +157,9 @@ class ConversationalRecommenderEnv(gym.Env):
     def _simulate_user_response(self, action_type: int, items: List[str]) -> Dict:
         """Simulate user response to system action"""
         
-
         if action_type == 0:  # ask_preference
             preference = self.user.provide_preference()
             self.user_preferences.append(preference)
-            self.preference_actions += 1
             return {
                 'action': 'inform',
                 'utterance': preference,
@@ -173,14 +172,10 @@ class ConversationalRecommenderEnv(gym.Env):
             response = self.user.respond_to_recommendation(items, self.current_turn)
             return response
         
-
         elif action_type == 2:  # clarify
-            clarification = self.user.provide_preference()
-            self.user_preferences.append(clarification)
-            self.preference_actions += 1
             return {
-                'action': 'inform',
-                'utterance': f"To clarify, {clarification}",
+                'action': 'clarify_response',
+                'utterance': 'Let me clarify...',
                 'satisfied': False
             }
         
@@ -223,34 +218,27 @@ class ConversationalRecommenderEnv(gym.Env):
         else:
             rewards['fairness'] = 0.0
         
-
         # ==== Engagement Reward ====
         if action_type == 0:
-            early_bonus = 0.25 if self.current_turn <= 3 else 0.0
-            rewards['engagement'] = float(self.reward_config.get('reward_ask_preference', 0.0)) + early_bonus
+            rewards['engagement'] = float(self.reward_config.get('reward_ask_preference', 0.0))
         elif action_type == 2:
-            rewards['engagement'] = float(self.reward_config.get('reward_clarify', 0.0)) + 0.1
+            rewards['engagement'] = float(self.reward_config.get('reward_clarify', 0.0))
         elif user_response['action'] == 'ask_more':
-            rewards['engagement'] = 2.5
+            rewards['engagement'] = 5.0
         elif user_response['action'] == 'leave':
             rewards['engagement'] = -10.0
         elif user_response['action'] == 'inform':
-            rewards['engagement'] = 0.6
+            rewards['engagement'] = 1.0
         elif user_response['action'] == 'reject':
             rewards['engagement'] = float(self.reward_config.get('reward_reject_engagement', -1.0))
         else:
-            rewards['engagement'] = 0.8
+            rewards['engagement'] = 1.0
 
         if action_type == 1 and items:
             self.non_recommend_streak = 0
             rewards['engagement'] += float(self.reward_config.get('reward_recommend_attempt_bonus', 0.0))
-            if self.current_turn <= 2 and self.preference_actions == 0:
-                rewards['engagement'] -= float(self.reward_config.get('early_recommend_penalty', 1.0))
-            if len(set(items)) < len(items):
-                rewards['engagement'] -= 0.4
-            repeated = len(set(items).intersection(set(self.recommended_items[:-len(items)]))) if len(self.recommended_items) > len(items) else 0
-            if repeated > 0:
-                rewards['engagement'] -= min(1.0, 0.25 * repeated)
+            if self.current_turn <= 2 and len(self.user_preferences) == 0:
+                rewards['engagement'] -= self.early_recommend_penalty
         else:
             self.non_recommend_streak += 1
             streak_step = float(self.reward_config.get('non_recommend_streak_penalty', 0.0))
@@ -258,21 +246,13 @@ class ConversationalRecommenderEnv(gym.Env):
             streak_penalty = min(streak_cap, streak_step * max(0, self.non_recommend_streak - 1))
             rewards['engagement'] -= streak_penalty
 
-        # Strong anti-collapse penalty for ending too early.
-        if (
-            action_type == 3
-            and (
-                (
-                    self.min_turns_before_end > 0
-                    and self.current_turn < self.min_turns_before_end
-                )
-                or (
-                    self.min_recommendations_before_end > 0
-                    and len(set(self.recommended_items)) < self.min_recommendations_before_end
-                )
-            )
-        ):
-            rewards['engagement'] -= self.early_end_penalty
+        if action_type == 3:
+            if user_response.get('action') != 'accept':
+                rewards['engagement'] += self.reward_end_without_success
+            if len(set(self.recommended_items)) == 0:
+                rewards['engagement'] += self.reward_end_without_recommendation
+            if ((self.min_turns_before_end > 0 and self.current_turn < self.min_turns_before_end) or (self.min_recommendations_before_end > 0 and len(set(self.recommended_items)) < self.min_recommendations_before_end)):
+                rewards['engagement'] -= self.early_end_penalty
         
         return rewards
     
@@ -315,46 +295,33 @@ class ConversationalRecommenderEnv(gym.Env):
         return diversity
     
     def _compute_fairness(self, items: List[str]) -> float:
-        """Compute fairness score"""
-        # Simple fairness: check if we're showing diverse item providers
-        # and not over-representing popular items
-        
+        """Compute fairness score with stronger tail-awareness."""
         if not items:
-            return 1.0
-        
-        fairness_score = 0.0
-        
-        # Provider diversity (if available)
+            return 0.0
+
         providers = set()
+        popularities = []
+        categories = set()
         for item_id in items:
             item = self.item_catalog.get_item(item_id)
             if item:
                 providers.add(item.get('provider', 'default'))
-        
-        if providers:
-            provider_diversity = len(providers) / len(items)
-            fairness_score += 0.5 * provider_diversity
-        else:
-            fairness_score += 0.5
-        
-        # Popularity balance (prefer less-mentioned items sometimes)
-        popularities = []
-        for item_id in items:
-            item = self.item_catalog.get_item(item_id)
-            if item:
-                # Use mention count as popularity proxy; keep backward compatibility with old catalogs.
-                popularities.append(item.get('mentions', item.get('popularity', 500)))
-        
+                popularities.append(float(item.get('mentions', item.get('popularity', 500)) or 500.0))
+                categories.add(str(item.get('category', 'Unknown')))
+
+        provider_diversity = len(providers) / max(len(items), 1)
+        category_diversity = len(categories) / max(len(items), 1)
         if popularities:
             avg_popularity = np.mean(popularities)
-            # Reward showing less popular items (inversely proportional)
-            popularity_balance = 1.0 - (avg_popularity / 1000.0)
-            fairness_score += 0.5 * popularity_balance
+            inverse_popularity = 1.0 / (1.0 + np.log1p(max(avg_popularity, 0.0)))
+            tail_share = sum(1 for p in popularities if p <= np.median(popularities)) / max(len(popularities), 1)
         else:
-            fairness_score += 0.5
-        
-        return fairness_score
-    
+            inverse_popularity = 0.0
+            tail_share = 0.0
+
+        fairness_score = 0.25 * provider_diversity + 0.25 * category_diversity + 0.30 * inverse_popularity + 0.20 * tail_share
+        return float(max(0.0, min(1.0, fairness_score)))
+
     def _get_state(self) -> np.ndarray:
         """Get current state representation"""
         state_dim = self.config['model']['policy']['state_dim']

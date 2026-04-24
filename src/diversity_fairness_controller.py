@@ -115,11 +115,11 @@ class DiversityFairnessController(nn.Module):
         
         # ==== Combined Score ====
         # Weighted combination: relevance + diversity + fairness + exposure - temporal repetition.
-        alpha_relevance = 0.30
-        alpha_diversity = 0.25
-        alpha_fairness = 0.25
-        alpha_exposure = 0.15
-        alpha_temporal = 0.05
+        alpha_relevance = 0.28
+        alpha_diversity = 0.20
+        alpha_fairness = 0.22
+        alpha_exposure = 0.20
+        alpha_temporal = 0.10
         
         combined_scores = (
             alpha_relevance * candidate_scores +
@@ -331,7 +331,8 @@ class ExposureTracker:
             else:
                 current_exposure = self.exposure_counts[item_id] / self.total_exposures
                 # Weight inversely proportional to exposure
-                weight = max(0.1, 1.0 - current_exposure / self.target_exposure)
+                ratio = current_exposure / max(self.target_exposure, 1e-8)
+                weight = max(0.05, min(2.5, 1.5 / np.sqrt(1.0 + ratio)))
             
             weights.append(weight)
         
