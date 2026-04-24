@@ -13,6 +13,7 @@ from tqdm import tqdm
 import wandb
 from typing import Dict, List, Optional
 import argparse
+import random
 from mocrs import MOCRS
 from policy_network import PPOAgent
 from environment import ConversationalRecommenderEnv, BatchedConversationalEnv
@@ -152,9 +153,11 @@ class MOCRSTrainer:
         self._fast_candidate_sampling = False
         self._catalog_embedding_matrix = None
         self._catalog_popularity = np.zeros((0,), dtype=np.float32)
+        self._catalog_popularity_by_id = {}
         self._tail_sampling_probs = None
         self._head_item_set = set()
         self._tail_item_set = set()
+        self._mid_item_set = set()
         if self._catalog_size == 0:
             return
         emb_dim = int(self.config.get('model', {}).get('diversity_fairness', {}).get('item_embedding_dim', 128))
@@ -169,14 +172,22 @@ class MOCRSTrainer:
             popularity[idx] = float(item.get('mentions', item.get('popularity', 0.0)) or 0.0)
         self._catalog_embedding_matrix = torch.as_tensor(emb_matrix, dtype=torch.float32, device=self.device)
         self._catalog_popularity = popularity
+        self._catalog_popularity_by_id = {
+            str(item_id): float(popularity[idx]) for idx, item_id in enumerate(self._catalog_item_ids)
+        }
         self._fast_candidate_sampling = True
-        tail_weights = 1.0 / np.sqrt(popularity + 1.0)
+        tail_weights = 1.0 / np.power(popularity + 1.0, 0.75)
         tail_weights = tail_weights / max(np.sum(tail_weights), 1e-8)
         self._tail_sampling_probs = tail_weights
         order = np.argsort(popularity)[::-1]
         head_cut = max(1, int(0.2 * self._catalog_size))
+        tail_cut = max(1, int(0.5 * self._catalog_size))
         self._head_item_set = {self._catalog_item_ids[int(i)] for i in order[:head_cut]}
-        self._tail_item_set = set(self._catalog_item_ids) - self._head_item_set
+        self._tail_item_set = {self._catalog_item_ids[int(i)] for i in order[-tail_cut:]}
+        self._mid_item_set = set(self._catalog_item_ids) - self._head_item_set - self._tail_item_set
+        # Register popularity priors inside the reranker so fairness can directly penalize head items.
+        if hasattr(self.model, 'dfc') and hasattr(self.model.dfc, 'set_catalog_popularity'):
+            self.model.dfc.set_catalog_popularity(self._catalog_popularity_by_id)
         print(f"Fast catalog cache ready: items={self._catalog_size}, emb_dim={emb_dim}")
     def _item_popularity(self, item_id: str) -> float:
         item = self.item_catalog.get_item(item_id) or {}
@@ -233,12 +244,22 @@ class MOCRSTrainer:
             return 0.0
         head = sum(1 for item in items if item in self._head_item_set)
         tail = sum(1 for item in items if item in self._tail_item_set)
+        non_head = max(len(items) - head, 0)
         categories = set()
+        avg_pop = 0.0
         for item_id in items:
             item = self.item_catalog.get_item(item_id) or {}
             categories.add(str(item.get('category', 'Unknown')))
+            avg_pop += self._item_popularity(item_id)
+        avg_pop = avg_pop / max(len(items), 1)
+        pop_norm = 1.0 / (1.0 + np.log1p(max(avg_pop, 0.0)))
         mix_bonus = len(categories) / max(len(items), 1)
-        return 0.35 * ((tail - head) / max(len(items), 1)) + 0.10 * mix_bonus
+        return (
+            0.45 * ((tail - head) / max(len(items), 1)) +
+            0.15 * ((non_head / max(len(items), 1)) - 0.5) +
+            0.10 * mix_bonus +
+            0.15 * pop_norm
+        )
     def _compute_action_shaping(self, env_actions: List[Dict], current_turn: int, recommended_counts: np.ndarray) -> np.ndarray:
         bonuses = np.zeros((len(env_actions), 4), dtype=np.float32)
         for i, env_action in enumerate(env_actions):
@@ -254,6 +275,11 @@ class MOCRSTrainer:
                 bonuses[i, 3] += 0.05
             if action_type == 1 and items:
                 bonuses[i, 2] += self._fairness_tail_bonus(items)
+                head_share = sum(1 for item in items if item in self._head_item_set) / max(len(items), 1)
+                if head_share > 0.6:
+                    bonuses[i, 2] -= 0.20
+                elif head_share < 0.35:
+                    bonuses[i, 2] += 0.10
                 if rec_count == 0 and current_turn <= 2:
                     bonuses[i, 3] -= 0.05
             if action_type == 3 and rec_count == 0:
@@ -731,41 +757,82 @@ class MOCRSTrainer:
             'preferences': deduped_preferences[:20]
         }
     def _sample_candidate_items(self, num_envs: int, candidate_pool_size: int, user_profiles: Optional[List[Dict]] = None):
-        """Sample candidate items with a contextual + tail-aware mix."""
+        """Sample candidate items with a contextual mix that explicitly controls head concentration."""
         sample_size = min(int(candidate_pool_size), int(self._catalog_size))
         candidate_ids_batch = []
+        head_list = list(self._head_item_set)
+        tail_list = list(self._tail_item_set)
+        mid_list = list(self._mid_item_set) if self._mid_item_set else list(set(self._catalog_item_ids) - self._head_item_set)
         for env_idx in range(num_envs):
             profile = user_profiles[env_idx] if user_profiles is not None and env_idx < len(user_profiles) else {}
             seen = set()
             selected = []
+
             def add_item(item_id: str):
                 item_id = str(item_id)
                 if item_id in self.item_catalog.catalog and item_id not in seen and len(selected) < sample_size:
                     seen.add(item_id)
                     selected.append(item_id)
+
             prefs = [str(x) for x in profile.get('preferences', []) if str(x) in self.item_catalog.catalog]
-            for item_id in prefs[:max(3, sample_size // 12)]:
+            for item_id in prefs[:max(4, sample_size // 10)]:
                 add_item(item_id)
+
             pref_categories = set()
-            for item_id in prefs[:10]:
+            for item_id in prefs[:12]:
                 item = self.item_catalog.get_item(item_id) or {}
                 pref_categories.add(str(item.get('category', 'Unknown')))
-            contextual_candidates = []
+
+            category_candidates = []
             for cat in pref_categories:
-                contextual_candidates.extend(self.item_catalog.get_items_by_category(cat, limit=max(10, sample_size // 2)))
-            contextual_candidates = sorted(set(str(x) for x in contextual_candidates), key=lambda iid: self._item_popularity(iid))
-            for item_id in contextual_candidates[:max(10, sample_size // 3)]:
+                category_candidates.extend(self.item_catalog.get_items_by_category(cat, limit=max(12, sample_size // 2)))
+            category_candidates = [str(x) for x in category_candidates if str(x) in self.item_catalog.catalog]
+            category_candidates = sorted(set(category_candidates), key=lambda iid: (iid in self._head_item_set, self._item_popularity(iid), iid))
+
+            # Keep category matches, but prefer non-head items first.
+            for item_id in category_candidates[:max(12, sample_size // 3)]:
                 add_item(item_id)
-            if self._tail_sampling_probs is not None and self._catalog_size > 0:
-                draw_size = min(self._catalog_size, sample_size * 2)
+
+            # Explicit stratified quotas: ~50% tail, ~30% mid, ~20% head.
+            remaining = sample_size - len(selected)
+            tail_quota = max(10, int(0.50 * remaining))
+            mid_quota = max(6, int(0.30 * remaining))
+            head_quota = max(2, remaining - tail_quota - mid_quota)
+
+            random.shuffle(tail_list)
+            random.shuffle(mid_list)
+            random.shuffle(head_list)
+
+            for item_id in tail_list:
+                add_item(item_id)
+                if sum(1 for x in selected if x in self._tail_item_set) >= tail_quota:
+                    break
+
+            for item_id in mid_list:
+                add_item(item_id)
+                if sum(1 for x in selected if x in self._mid_item_set) >= mid_quota:
+                    break
+
+            # Keep some head items for accuracy, but cap them.
+            for item_id in head_list:
+                add_item(item_id)
+                if sum(1 for x in selected if x in self._head_item_set) >= head_quota:
+                    break
+
+            # Final fill prefers tail-weighted samples, not uniform sampling.
+            if self._tail_sampling_probs is not None and self._catalog_size > 0 and len(selected) < sample_size:
+                draw_size = min(self._catalog_size, sample_size * 4)
                 tail_indices = np.random.choice(self._catalog_size, size=draw_size, replace=False, p=self._tail_sampling_probs)
                 for idx in tail_indices:
                     add_item(self._catalog_item_ids[int(idx)])
                     if len(selected) >= sample_size:
                         break
+
             while len(selected) < sample_size:
-                add_item(random.choice(self._catalog_item_ids))
+                add_item(random.choice(tail_list if tail_list else self._catalog_item_ids))
+
             candidate_ids_batch.append(selected[:sample_size])
+
         if self._fast_candidate_sampling and self._catalog_embedding_matrix is not None:
             id_to_idx = {item_id: idx for idx, item_id in enumerate(self._catalog_item_ids)}
             row_indices = [[id_to_idx[item_id] for item_id in ids] for ids in candidate_ids_batch]
@@ -777,6 +844,7 @@ class MOCRSTrainer:
                 embs = [self.item_catalog.get_item_embedding(item_id) for item_id in ids]
                 candidate_embeddings.append(embs)
             candidate_embeddings = torch.FloatTensor(np.asarray(candidate_embeddings, dtype=np.float32)).to(self.device)
+
         return candidate_ids_batch, candidate_embeddings
     def _create_rl_batch(self, states: torch.Tensor, candidate_embeddings: torch.Tensor,
                          candidate_ids_batch: List[List[str]] = None,

@@ -567,9 +567,13 @@ def _simulate_online_metrics(
             avg_pop = float(np.sum(np.array([id_to_pop[item_id] for item_id in catalog_ids]) * counts) / exposure_total)
             head_exposure = float(np.sum([counts_dict.get(item_id, 0.0) for item_id in head_items]))
             tail_exposure = max(exposure_total - head_exposure, 0.0)
-            diff = (tail_exposure / exposure_total) - (head_exposure / exposure_total)
+            head_share = head_exposure / exposure_total
+            tail_share = tail_exposure / exposure_total
+            diff = tail_share - head_share
         else:
             avg_pop = 0.0
+            head_share = 0.0
+            tail_share = 0.0
             diff = 0.0
         diversity[f'ILD@{k}'] = _safe_mean(ild_values[k])
         diversity[f'GenreCoverage@{k}'] = float(len(rec_genres[k]) / max(len(all_genres), 1))
@@ -579,6 +583,8 @@ def _simulate_online_metrics(
         fairness[f'G@{k}'] = _gini_from_counts(counts)
         fairness[f'L@{k}'] = _kl_to_uniform(counts)
         fairness[f'D@{k}'] = diff
+        fairness[f'HeadShare@{k}'] = head_share
+        fairness[f'TailShare@{k}'] = tail_share
         fairness[f'Entropy@{k}'] = _normalized_entropy(counts)
 
     transparency = {

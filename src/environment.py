@@ -41,6 +41,8 @@ class ConversationalRecommenderEnv(gym.Env):
         self.early_recommend_penalty = float(self.reward_config.get('early_recommend_penalty', 0.0))
         self.reward_end_without_success = float(self.reward_config.get('reward_end_without_success', -2.0))
         self.reward_end_without_recommendation = float(self.reward_config.get('reward_end_without_recommendation', -3.0))
+        self.reward_head_item_penalty = float(self.reward_config.get('reward_head_item_penalty', 1.0))
+        self.reward_tail_item_bonus = float(self.reward_config.get('reward_tail_item_bonus', 1.0))
         
         # Action space: [action_type, item_indices]
         # Action types: 0=ask_preference, 1=recommend, 2=clarify, 3=end
@@ -76,6 +78,18 @@ class ConversationalRecommenderEnv(gym.Env):
             'diversity_scores': [],
             'fairness_violations': []
         }
+
+        # Catalog popularity priors for stronger fairness shaping.
+        self._catalog_popularity = {
+            str(item_id): float((self.item_catalog.get_item(item_id) or {}).get('mentions', (self.item_catalog.get_item(item_id) or {}).get('popularity', 0.0)) or 0.0)
+            for item_id in getattr(self.item_catalog, 'item_ids', [])
+        }
+        ordered = sorted(self._catalog_popularity.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)
+        head_cut = max(1, int(0.20 * max(len(ordered), 1)))
+        tail_cut = max(1, int(0.50 * max(len(ordered), 1)))
+        self._head_item_set = {item_id for item_id, _ in ordered[:head_cut]}
+        self._tail_item_set = {item_id for item_id, _ in ordered[-tail_cut:]}
+        self._catalog_max_popularity = max([v for _, v in ordered], default=1.0)
         
     def reset(self, user_profile: Dict = None) -> np.ndarray:
         """Reset environment for new episode"""
@@ -215,6 +229,10 @@ class ConversationalRecommenderEnv(gym.Env):
         if action_type == 1 and items:
             fairness_score = self._compute_fairness(items)
             rewards['fairness'] = fairness_score * self.reward_config['reward_fairness_factor']
+            head_share = sum(1 for item_id in items if str(item_id) in self._head_item_set) / max(len(items), 1)
+            tail_share = sum(1 for item_id in items if str(item_id) in self._tail_item_set) / max(len(items), 1)
+            rewards['fairness'] += self.reward_tail_item_bonus * tail_share
+            rewards['fairness'] -= self.reward_head_item_penalty * max(0.0, head_share - 0.4)
         else:
             rewards['fairness'] = 0.0
         
@@ -295,31 +313,45 @@ class ConversationalRecommenderEnv(gym.Env):
         return diversity
     
     def _compute_fairness(self, items: List[str]) -> float:
-        """Compute fairness score with stronger tail-awareness."""
+        """Compute fairness score with explicit anti-head concentration pressure."""
         if not items:
             return 0.0
 
         providers = set()
-        popularities = []
         categories = set()
+        popularities = []
+        head_count = 0
+        tail_count = 0
         for item_id in items:
+            item_id = str(item_id)
             item = self.item_catalog.get_item(item_id)
             if item:
                 providers.add(item.get('provider', 'default'))
-                popularities.append(float(item.get('mentions', item.get('popularity', 500)) or 500.0))
                 categories.add(str(item.get('category', 'Unknown')))
+                popularities.append(float(item.get('mentions', item.get('popularity', 500)) or 500.0))
+            if item_id in self._head_item_set:
+                head_count += 1
+            if item_id in self._tail_item_set:
+                tail_count += 1
 
         provider_diversity = len(providers) / max(len(items), 1)
         category_diversity = len(categories) / max(len(items), 1)
+        head_share = head_count / max(len(items), 1)
+        tail_share = tail_count / max(len(items), 1)
+        non_head_share = 1.0 - head_share
         if popularities:
             avg_popularity = np.mean(popularities)
-            inverse_popularity = 1.0 / (1.0 + np.log1p(max(avg_popularity, 0.0)))
-            tail_share = sum(1 for p in popularities if p <= np.median(popularities)) / max(len(popularities), 1)
+            inverse_popularity = 1.0 - (np.log1p(max(avg_popularity, 0.0)) / max(np.log1p(max(self._catalog_max_popularity, 1.0)), 1e-8))
         else:
             inverse_popularity = 0.0
-            tail_share = 0.0
 
-        fairness_score = 0.25 * provider_diversity + 0.25 * category_diversity + 0.30 * inverse_popularity + 0.20 * tail_share
+        fairness_score = (
+            0.20 * provider_diversity +
+            0.20 * category_diversity +
+            0.25 * non_head_share +
+            0.20 * tail_share +
+            0.15 * inverse_popularity
+        )
         return float(max(0.0, min(1.0, fairness_score)))
 
     def _get_state(self) -> np.ndarray:

@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Dict, List, Tuple, Set
 import numpy as np
+import math
 from collections import defaultdict
 
 
@@ -61,6 +62,97 @@ class DiversityFairnessController(nn.Module):
         
         # Diversity history
         self.diversity_history = []
+
+        # Catalog popularity priors for head-item concentration control.
+        self.catalog_popularity_by_id = {}
+        self.catalog_max_popularity = 1.0
+        self.catalog_head_items = set()
+        self.catalog_tail_items = set()
+
+
+    def set_catalog_popularity(self, popularity_by_id: Dict[Any, float]) -> None:
+        """Register catalog popularity priors for head-item concentration control."""
+        self.catalog_popularity_by_id = {str(k): float(v) for k, v in (popularity_by_id or {}).items()}
+        if not self.catalog_popularity_by_id:
+            self.catalog_max_popularity = 1.0
+            self.catalog_head_items = set()
+            self.catalog_tail_items = set()
+            return
+
+        pops = np.asarray(list(self.catalog_popularity_by_id.values()), dtype=np.float64)
+        self.catalog_max_popularity = float(max(np.max(pops), 1.0))
+        ordered = sorted(self.catalog_popularity_by_id.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)
+        n = len(ordered)
+        head_cut = max(1, int(0.20 * n))
+        tail_cut = max(1, int(0.50 * n))
+        self.catalog_head_items = {item_id for item_id, _ in ordered[:head_cut]}
+        self.catalog_tail_items = {item_id for item_id, _ in ordered[-tail_cut:]}
+
+    def _candidate_popularity_bonus(self, candidate_ids: List[Any], device: torch.device) -> torch.Tensor:
+        """Higher bonus for low-popularity items, lower for head items."""
+        if not candidate_ids:
+            return torch.zeros(0, dtype=torch.float32, device=device)
+
+        bonuses = []
+        max_log = math.log1p(max(self.catalog_max_popularity, 1.0))
+        for item_id in candidate_ids:
+            item_id = str(item_id)
+            pop = float(self.catalog_popularity_by_id.get(item_id, 0.0))
+            novelty = 1.0 - (math.log1p(max(pop, 0.0)) / max(max_log, 1e-8))
+            # Stronger tail lift and stronger head penalty.
+            if item_id in self.catalog_head_items:
+                novelty -= 0.25
+            elif item_id in self.catalog_tail_items:
+                novelty += 0.20
+            bonuses.append(float(max(0.0, min(1.25, novelty))))
+        return torch.as_tensor(bonuses, dtype=torch.float32, device=device)
+
+    def _apply_head_concentration_guard(self, combined_scores: torch.Tensor, candidate_ids: List[Any], top_k: int) -> torch.Tensor:
+        """Reorder top-k to limit head-item concentration without destroying relevance."""
+        sorted_idx = torch.argsort(combined_scores, descending=True).detach().cpu().tolist()
+        if not sorted_idx:
+            return torch.zeros((0,), dtype=torch.long, device=combined_scores.device)
+
+        max_head_share = {
+            5: float(self.config.get('model', {}).get('diversity_fairness', {}).get('max_head_share_top5', 0.40)),
+            10: float(self.config.get('model', {}).get('diversity_fairness', {}).get('max_head_share_top10', 0.35)),
+            20: float(self.config.get('model', {}).get('diversity_fairness', {}).get('max_head_share_top20', 0.35)),
+        }
+
+        selected = []
+        remaining = list(sorted_idx)
+        head_count = 0
+        for pos in range(min(top_k, len(remaining))):
+            slot = pos + 1
+            if slot <= 5:
+                limit = max_head_share[5]
+            elif slot <= 10:
+                limit = max_head_share[10]
+            else:
+                limit = max_head_share[20]
+
+            chosen = remaining[0]
+            chosen_is_head = str(candidate_ids[chosen]) in self.catalog_head_items if chosen < len(candidate_ids) else False
+            projected_share = (head_count + (1 if chosen_is_head else 0)) / max(slot, 1)
+
+            if chosen_is_head and projected_share > limit:
+                replacement = None
+                for cand in remaining:
+                    cand_is_head = str(candidate_ids[cand]) in self.catalog_head_items if cand < len(candidate_ids) else False
+                    score_gap = float(combined_scores[chosen] - combined_scores[cand])
+                    if (not cand_is_head) and score_gap <= 0.20:
+                        replacement = cand
+                        break
+                if replacement is not None:
+                    chosen = replacement
+                    chosen_is_head = False
+
+            selected.append(chosen)
+            remaining.remove(chosen)
+            if chosen_is_head:
+                head_count += 1
+
+        return torch.as_tensor(selected, dtype=torch.long, device=combined_scores.device)
         
     def forward(self, candidate_items: torch.Tensor,
                candidate_scores: torch.Tensor,
@@ -113,25 +205,35 @@ class DiversityFairnessController(nn.Module):
             candidate_ids
         ).to(device)
         
+        # ==== Popularity / Head-Tail Bonus ====
+        popularity_bonus = self._candidate_popularity_bonus(candidate_ids, device)
+
         # ==== Combined Score ====
-        # Weighted combination: relevance + diversity + fairness + exposure - temporal repetition.
-        alpha_relevance = 0.28
-        alpha_diversity = 0.20
-        alpha_fairness = 0.22
-        alpha_exposure = 0.20
+        # Weighted combination: relevance + diversity + fairness + exposure + popularity - temporal repetition.
+        alpha_relevance = 0.24
+        alpha_diversity = 0.18
+        alpha_fairness = 0.20
+        alpha_exposure = 0.18
+        alpha_popularity = 0.20
         alpha_temporal = 0.10
         
         combined_scores = (
             alpha_relevance * candidate_scores +
             alpha_diversity * mmr_scores +
             alpha_fairness * fairness_scores +
-            alpha_exposure * exposure_weights -
+            alpha_exposure * exposure_weights +
+            alpha_popularity * popularity_bonus -
             alpha_temporal * temporal_penalties
         )
         
-        # Get top-k
+        # Get top-k with head-concentration guard.
         top_k = min(50, num_candidates)
-        top_scores, top_indices = torch.topk(combined_scores, top_k)
+        guarded_indices = self._apply_head_concentration_guard(combined_scores, candidate_ids, top_k)
+        if guarded_indices.numel() > 0:
+            top_indices = guarded_indices
+            top_scores = combined_scores[top_indices]
+        else:
+            top_scores, top_indices = torch.topk(combined_scores, top_k)
 
         selected_item_ids = [candidate_ids[idx] for idx in top_indices.detach().cpu().tolist()]
         self.temporal_tracker.add_items(selected_item_ids)
@@ -144,6 +246,7 @@ class DiversityFairnessController(nn.Module):
             'diversity_scores': mmr_scores[top_indices],
             'fairness_scores': fairness_scores[top_indices],
             'exposure_weights': exposure_weights[top_indices],
+            'popularity_bonus': popularity_bonus[top_indices],
             'temporal_penalties': temporal_penalties[top_indices]
         }
     
