@@ -1,0 +1,106 @@
+{
+  "mode": "test",
+  "dataset": "INSPIRED",
+  "config": "D:\\Tailieudh\\CRS proj\\source_code\\config_inspired.yaml",
+  "checkpoint": "best_rl_model.pt",
+  "ope": {
+    "test": {
+      "ips": 0.27497540006430277,
+      "snips": 0.2709602550288165,
+      "dr": 0.26926811273582485,
+      "dm": 0.028282828282828285,
+      "dr_ci_low": 0.22855651050456788,
+      "dr_ci_high": 0.313179962686648,
+      "dm_ci_low": 0.019191919191919194,
+      "dm_ci_high": 0.03737373737373738,
+      "ci_level": 0.95,
+      "bootstrap_samples": 1000.0,
+      "logged_reward_mean": 0.23159636421233717,
+      "logged_reward_std": 0.162765397226177,
+      "behavior_recommend_rate": 0.8058252427184466,
+      "num_samples": 99.0
+    }
+  },
+  "test_evaluation": {
+    "split": "test",
+    "recommendation_results": {
+      "Recall@10": 0.32926829268292684,
+      "Recall@50": 0.5121951219512195,
+      "MRR@10": 0.21422764227642277,
+      "MRR@50": 0.2216103536603908,
+      "NDCG@10": 0.2427777340576109,
+      "NDCG@50": 0.2812183663967162,
+      "num_conversations_used": 82,
+      "num_conversations_total": 99
+    },
+    "conversation_results": {
+      "Dist-2": 0.042094092677750265,
+      "Dist-3": 0.051751888077256405,
+      "BLEU-2": 0.0,
+      "BLEU-3": 0.0,
+      "SR@5": 0.8333333333333334,
+      "SR@10": 0.8333333333333334,
+      "SR@20": 0.8333333333333334,
+      "AT": 4.366666666666666,
+      "success_rate": 0.8333333333333334,
+      "num_generated_explanations": 404
+    },
+    "diversity": {
+      "ILD@5": 0.9911332943555081,
+      "GenreCoverage@5": 0.88,
+      "CategoryCoverage@5": 0.88,
+      "CalibrationError@5": 0.4788667909069715,
+      "ILD@10": 0.9953915839326385,
+      "GenreCoverage@10": 0.88,
+      "CategoryCoverage@10": 0.88,
+      "CalibrationError@10": 0.47391901518201046,
+      "ILD@20": 0.996842776108515,
+      "GenreCoverage@20": 0.92,
+      "CategoryCoverage@20": 0.92,
+      "CalibrationError@20": 0.48700500670605557
+    },
+    "fairness": {
+      "A@5": 66.89059405940594,
+      "G@5": 0.9614081288952299,
+      "L@5": 3.1585460743696716,
+      "D@5": 0.5465346534653466,
+      "HeadShare@5": 0.22673267326732674,
+      "TailShare@5": 0.7732673267326733,
+      "Entropy@5": 0.5800239363526807,
+      "A@10": 77.47450495049505,
+      "G@10": 0.9355285176404966,
+      "L@10": 2.5275572588627,
+      "D@10": 0.49207920792079207,
+      "HeadShare@10": 0.25396039603960396,
+      "TailShare@10": 0.746039603960396,
+      "Entropy@10": 0.6639233611837676,
+      "A@20": 89.30717821782179,
+      "G@20": 0.8985348304602943,
+      "L@20": 2.00969891367823,
+      "D@20": 0.4574257425742574,
+      "HeadShare@20": 0.2712871287128713,
+      "TailShare@20": 0.7287128712871287,
+      "Entropy@20": 0.7327803935703825
+    },
+    "transparency": {
+      "groundedness_factual_consistency": 1.0,
+      "deception_hallucination_rate": 0.0,
+      "persuasiveness_score": 1.0,
+      "transparency_score": 1.0,
+      "trust_score": 1.0,
+      "usefulness_score": 1.0
+    },
+    "online_rollout": {
+      "episodes": 120,
+      "num_test_conversations": 99,
+      "rollout_horizon": 20,
+      "action_ratios": {
+        "ask": 0.22900763358778625,
+        "recommend": 0.7709923664122137,
+        "clarify": 0.0,
+        "end": 0.0
+      },
+      "num_catalog_items": 1846
+    }
+  }
+}

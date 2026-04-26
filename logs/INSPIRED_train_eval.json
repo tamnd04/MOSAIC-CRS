@@ -1,0 +1,47 @@
+{
+  "mode": "both",
+  "dataset": "INSPIRED",
+  "config": "D:\\Tailieudh\\CRS proj\\source_code\\config_inspired.yaml",
+  "checkpoint": null,
+  "ope": {
+    "validation": {
+      "ips": 0.28094563171000647,
+      "snips": 0.2951825010131168,
+      "dr": 0.28064779119947547,
+      "dm": 0.020202020202020204,
+      "dr_ci_low": 0.24547316522226667,
+      "dr_ci_high": 0.3155075495861978,
+      "dm_ci_low": 0.012121212121212123,
+      "dm_ci_high": 0.02929292929292929,
+      "ci_level": 0.95,
+      "bootstrap_samples": 1000.0,
+      "logged_reward_mean": 0.2600662003867965,
+      "logged_reward_std": 0.15168238176177343,
+      "behavior_recommend_rate": 0.8349514563106796,
+      "num_samples": 99.0
+    },
+    "test": {
+      "ips": 0.2570862554291281,
+      "snips": 0.270004130229862,
+      "dr": 0.25583138718198284,
+      "dm": 0.02727272727272728,
+      "dr_ci_low": 0.21844122394552498,
+      "dr_ci_high": 0.29704023764301585,
+      "dm_ci_low": 0.01916666666666669,
+      "dm_ci_high": 0.03636363636363636,
+      "ci_level": 0.95,
+      "bootstrap_samples": 1000.0,
+      "logged_reward_mean": 0.23159636421233717,
+      "logged_reward_std": 0.162765397226177,
+      "behavior_recommend_rate": 0.8058252427184466,
+      "num_samples": 99.0
+    }
+  },
+  "online_simulator": {
+    "success_rate": 0.6217391304347826,
+    "avg_turns": 18.867236024844722,
+    "diversity": 0.6000001455710616,
+    "fairness": 0.3046729139326814,
+    "num_episodes": 1288.0
+  }
+}

@@ -94,8 +94,11 @@ python train.py --mode both --config ../config.yaml --dataset INSPIRED
 
 ```bash
 cd src
-python train.py --mode both --config ../config_thesis.yaml --dataset ReDial --refresh_splits --eval_output ../logs/ReDial_thesis_ope.json
+python train.py --mode both --config ../config_thesis.yaml --dataset ReDial --eval_output ../logs/ReDial_thesis_ope.json
 ```
+
+Run `--refresh_splits` only once when you intentionally want to regenerate train/val/test files.
+For final reported comparisons, keep splits fixed across all runs.
 
 ### 5. Test-only evaluation (no RL, no pretraining)
 
@@ -119,6 +122,25 @@ Supported dataset names (case-insensitive aliases are accepted):
 - DuRecDial
 - LastFM
 - OpenDialKG
+
+## OpenDialKG Preparation
+
+If you downloaded OpenDialKG raw files (`data/OpenDialKG/raw/opendialkg.csv` and KG txt files),
+run the converter once to generate MO-CRS-ready splits and a dataset-specific catalog:
+
+```bash
+python data/convert_opendialkg.py --dataset_dir data/OpenDialKG
+```
+
+This creates:
+
+- `data/OpenDialKG/train_data_full.json` (immutable full source)
+- `data/OpenDialKG/train_data.json`
+- `data/OpenDialKG/val_data.json`
+- `data/OpenDialKG/test_data.json`
+- `data/OpenDialKG/item_catalog.json`
+
+Then train/test normally by selecting `--dataset OpenDialKG`.
 
 ## Key Config Toggles
 

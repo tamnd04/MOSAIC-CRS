@@ -1,0 +1,47 @@
+{
+  "mode": "rl",
+  "dataset": "ReDial",
+  "config": "D:\\Tailieudh\\CRS proj\\source_code\\config_thesis.yaml",
+  "checkpoint": "best_model.pt",
+  "ope": {
+    "validation": {
+      "ips": 0.7905961976215833,
+      "snips": 0.7870894607530287,
+      "dr": 0.7878132389487651,
+      "dm": 0.26557377049180325,
+      "dr_ci_low": 0.7790629637297734,
+      "dr_ci_high": 0.7959848898056122,
+      "dm_ci_low": 0.25201192250372584,
+      "dm_ci_high": 0.2779433681073025,
+      "ci_level": 0.95,
+      "bootstrap_samples": 1000.0,
+      "logged_reward_mean": 0.7826815293143112,
+      "logged_reward_std": 0.10877940531223873,
+      "behavior_recommend_rate": 0.9896296296296296,
+      "num_samples": 671.0
+    },
+    "test": {
+      "ips": 0.7904270263273212,
+      "snips": 0.7869157650870869,
+      "dr": 0.7888261059313557,
+      "dm": 0.26855439642324885,
+      "dr_ci_low": 0.7813503624258347,
+      "dr_ci_high": 0.7962621440928108,
+      "dm_ci_low": 0.25618479880774964,
+      "dm_ci_high": 0.28018628912071536,
+      "ci_level": 0.95,
+      "bootstrap_samples": 1000.0,
+      "logged_reward_mean": 0.7857479820293414,
+      "logged_reward_std": 0.09599258784270093,
+      "behavior_recommend_rate": 0.9940740740740741,
+      "num_samples": 671.0
+    }
+  },
+  "online_simulator": {
+    "success_rate": 0.701725,
+    "avg_turns": 18.02,
+    "diversity": 0.6992808936567173,
+    "fairness": 0.5862716275401033,
+    "num_episodes": 4000.0
+  }
+}

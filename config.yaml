@@ -121,6 +121,7 @@ training:
     ppo_minibatch_size: 256
     updates_per_rollout: 4
     normalize_advantages: true
+    save_interval_episodes: 500
     constraint_aware:
       enabled: true
       penalty_coef: 0.15
