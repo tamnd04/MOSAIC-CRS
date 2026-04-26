@@ -30,16 +30,16 @@ model:
     num_objectives: 4
     dropout: 0.3
     objective_weights:
-      accuracy: 0.4
-      diversity: 0.25
-      fairness: 0.2
-      engagement: 0.15
+      accuracy: 0.50
+      diversity: 0.15
+      fairness: 0.15
+      engagement: 0.20
   diversity_fairness:
     hidden_dim: 256
-    lambda_mmr: 0.7
+    lambda_mmr: 0.75
     diversity_window: 20
-    min_diversity: 0.35
-    min_fairness: 0.90
+    min_diversity: 0.30
+    min_fairness: 0.65
     item_embedding_dim: 128
     user_embedding_dim: 128
     fairness_thresholds:
@@ -48,9 +48,13 @@ model:
       calibration: 0.15
       exposure: 0.6
       provider: 0.6
-    max_head_share_top5: 0.40
-    max_head_share_top10: 0.35
-    max_head_share_top20: 0.35
+    exposure_target_shares:
+      head: 0.40
+      mid: 0.35
+      tail: 0.25
+    max_head_share_top5: 0.60
+    max_head_share_top10: 0.55
+    max_head_share_top20: 0.55
   explanation_generator:
     vocab_size: 10000
     embedding_dim: 256
@@ -60,12 +64,12 @@ model:
     max_length: 50
     generation_mode: template
 training:
-  num_epochs: 10
+  num_epochs: 18
   save_frequency: 1
-  num_episodes: 20000
-  num_envs: 10
+  num_episodes: 5000
+  num_envs: 5
   max_turns_per_episode: 20
-  batch_size: 64
+  batch_size: 32
   learning_rate: 0.0002
   value_lr: 0.0008
   ppo:
@@ -74,55 +78,55 @@ training:
     gamma: 0.99
     lambda_gae: 0.95
     max_grad_norm: 0.5
-    entropy_coef: 0.05
+    entropy_coef: 0.06
     value_loss_coef: 0.5
-  epsilon_start: 0.15
+  epsilon_start: 0.18
   epsilon_end: 0.02
   epsilon_decay: 0.9997
   buffer_size: 100000
-  min_buffer_size: 5000
+  min_buffer_size: 3000
   behavioral_cloning:
     enabled: true
-    epochs: 30
+    epochs: 45
     learning_rate: 0.0005
-  eval_interval: 100
-  save_interval: 500
+  eval_interval: 50
+  save_interval: 100
   log_interval: 10
   rl:
     use_full_dataset: true
-    max_conversations: 10000
-    passes_over_data: 4
-    candidate_pool_size: 180
-    exploration_recommend_bias: 0.15
+    max_conversations: 801
+    passes_over_data: 8
+    candidate_pool_size: 80
+    exploration_recommend_bias: 0.20
     top_k_recommendations: 10
     rollout_horizon: 20
-    ppo_minibatch_size: 512
+    ppo_minibatch_size: 384
     updates_per_rollout: 6
     normalize_advantages: true
-    eval_interval_episodes: 100
-    save_interval_episodes: 500
-    min_turns_before_end: 5
+    eval_interval_episodes: 50
+    save_interval_episodes: 100
+    min_turns_before_end: 4
     constraint_aware:
       enabled: true
-      penalty_coef: 0.35
+      penalty_coef: 0.18
     ask_before_recommend_turns: 1
     reward_weights:
-      accuracy: 0.24
+      accuracy: 0.48
       diversity: 0.12
-      fairness: 0.40
+      fairness: 0.16
       engagement: 0.24
 data:
-  dataset_name: ReDial
+  dataset_name: INSPIRED
   data_root: ./data
-  data_dir: ./data/ReDial
-  processed_dir: ./data/ReDial/processed
-  train_file: ./data/ReDial/train_data.json
-  val_file: ./data/ReDial/val_data.json
-  test_file: ./data/ReDial/test_data.json
-  full_data_file: ./data/ReDial/train_data.json
+  data_dir: ./data/INSPIRED
+  processed_dir: ./data/INSPIRED/processed
+  train_file: ./data/INSPIRED/train_data.json
+  val_file: ./data/INSPIRED/val_data.json
+  test_file: ./data/INSPIRED/test_data.json
+  full_data_file: ./data/INSPIRED/train_data_full.json
   max_dialogue_length: 20
   max_utterance_length: 128
-  min_item_interactions: 5
+  min_item_interactions: 1
   train_ratio: 0.7
   val_ratio: 0.15
   test_ratio: 0.15
@@ -132,9 +136,9 @@ data:
     test_ratio: 0.15
     stratify_by: demographic_success
     min_group_samples: 5
-  catalog_file: ./data/ReDial/item_catalog.json
+  catalog_file: ./data/INSPIRED/item_catalog.json
   item_features_dim: 128
-  num_items: 6924
+  num_items: 1749
 evaluation:
   metrics:
   - success_rate
@@ -151,33 +155,33 @@ evaluation:
   - 1
   - 5
   - 10
-  num_eval_episodes: 300
+  num_eval_episodes: 120
   ips_clip_c: 10.0
 environment:
   max_turns: 20
   reward_success: 12.0
   reward_reject: -4.0
-  reward_per_turn: -0.1
-  reward_ask_preference: 1.0
-  reward_clarify: 0.6
+  reward_per_turn: -0.08
+  reward_ask_preference: 1.25
+  reward_clarify: 0.7
   reward_reject_engagement: -1.5
-  reward_recommend_attempt_bonus: 0.15
-  non_recommend_streak_penalty: 0.1
+  reward_recommend_attempt_bonus: 0.20
+  non_recommend_streak_penalty: 0.12
   non_recommend_streak_penalty_max: 1.0
   min_turns_before_end: 3
   early_end_penalty: 6.0
-  reward_diversity_factor: 4.0
-  reward_fairness_factor: 12.0
+  reward_diversity_factor: 3.0
+  reward_fairness_factor: 5.0
   reward_engagement_factor: 6.0
-  early_recommend_penalty: 0.4
+  early_recommend_penalty: 0.35
   reward_end_without_success: -2.0
   reward_end_without_recommendation: -3.0
-  reward_head_item_penalty: 1.4
-  reward_tail_item_bonus: 1.2
+  reward_head_item_penalty: 0.35
+  reward_tail_item_bonus: 0.45
 logging:
   log_dir: ./logs
-  experiment_name: mocrs_thesis_profile
-  use_wandb: true
+  experiment_name: mocrs_inspired_rank_action_tuned
+  use_wandb: false
   wandb_project: mocrs-thesis
   save_dir: ./checkpoints
 hardware:
