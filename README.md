@@ -1,226 +1,247 @@
 # MO-CRS: Multi-Objective Conversational Recommender System
 
-MO-CRS is a thesis-oriented conversational recommender prototype that combines four objectives in one RL training pipeline:
+MO-CRS is a thesis-oriented conversational recommender prototype that combines three objectives in one RL training pipeline:
 
 - diversity
 - fairness
 - transparency (explanations)
-- personalization
 
-The project is built around a modular architecture in `src/` and supports supervised pretraining, behavioral cloning warm-start, PPO-based RL fine-tuning, and offline evaluation with OPE metrics.
+This repository snapshot is set up to run end-to-end experiments on **ReDial** and **INSPIRED**, including:
 
-## Current Architecture Status
+- dataset conversion (raw -> MO-CRS JSON + item catalog)
+- supervised pretraining + PPO-based RL fine-tuning
+- test-only evaluation with a unified metric suite (ranking + conversation + diversity + fairness + transparency)
+- reproducible ablations (same metric suite for every variant/seed)
+- plotting utilities for thesis-ready figures
 
-The main runtime path now actively uses the advanced modules (not only test paths):
-
-- Personalization Engine (PE): cold-start handling and Thompson-sampling exploration are wired into rollout/inference batches through config-driven switches.
-- Diversity and Fairness Controller (DFC): temporal diversity penalties and exposure updates are applied during top-k reranking.
-- Explanation Generator (EG): default mode is `hybrid` (template + neural); if GPT-2 is unavailable at runtime, generation safely falls back to template mode.
-- Evaluation: novelty is computed from empirical exposure-based self-information, replacing fixed heuristic placeholders.
-
-## Core Modules
-
-- `src/dialogue_state_tracker.py`: dialogue state and intent/slot signals
-- `src/personalization_engine.py`: user-profile representation and preference modeling
-- `src/policy_network.py`: multi-objective policy and PPO agent
-- `src/diversity_fairness_controller.py`: reranking with diversity/fairness adjustments
-- `src/explanation_generator.py`: explanation generation
-- `src/mocrs.py`: end-to-end integration of all components
-
-## Repository Layout
+## Repository layout
 
 ```text
 .
-├── config.yaml
-├── config_thesis.yaml
-├── demo.py
-├── REFERENCES.md
+├── config_redial.yaml
+├── config_inspired.yaml
 ├── requirements.txt
+├── demo.py
+├── plot_training_eval.py
+├── data/
+│   ├── convert_redial.py
+│   ├── convert_inspired.py
+│   ├── ReDial/
+│   └── INSPIRED/
 ├── src/
 │   ├── train.py
-│   ├── off_policy_evaluation.py
 │   ├── run_experiments.py
+│   ├── test_evaluation_suite.py
 │   └── ...
-├── data/
-│   ├── ReDial/
-│   ├── GoRecDial/
-│   ├── INSPIRED/
-│   ├── MovieLens_1M/
-│   ├── Yelp/
-│   ├── DuRecDial/
-│   ├── LastFM/
-│   ├── OpenDialKG/
-│   └── item_catalog.json
-└── checkpoints/
+├── checkpoints/
+└── logs/
 ```
 
-## Environment Setup
+## Setup
+
+Python 3.10+ is recommended.
 
 Windows (PowerShell):
 
 ```powershell
+python -m venv venv
 venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-If dependencies are already installed in your existing `venv`, you can skip installation.
+Notes:
 
-## Training Workflows
+- `requirements.txt` is configured for CUDA PyTorch wheels by default. If you are on CPU-only or a different CUDA version, install a compatible PyTorch build first, then install the remaining requirements.
 
-Run from `src/` so relative paths match the provided configs.
+## Data preparation
 
-### 1. Supervised pretraining only
+If `data/<DATASET>/{train,val,test}_data.json` and `data/<DATASET>/item_catalog.json` already exist, you can skip conversion.
 
-```bash
-cd src
-python train.py --mode pretrain --config ../config.yaml --dataset ReDial
+### ReDial
+
+Place the following files under `data/ReDial/`:
+
+- `train_data.jsonl`
+- `test_data.jsonl`
+- `movies_with_mentions_with_genre_category_filled.csv`
+  - must contain movie IDs and enriched metadata (genre/category + mention counts)
+
+Convert/rebuild artifacts:
+
+```powershell
+python data/convert_redial.py --dataset_dir data/ReDial
 ```
 
-### 2. RL fine-tuning only
+This generates:
 
-```bash
-cd src
-python train.py --mode rl --config ../config.yaml --dataset GoRecDial --eval_output ../logs/GoRecDial_rl_ope.json
+- `data/ReDial/train_data.json`
+- `data/ReDial/val_data.json`
+- `data/ReDial/test_data.json`
+- `data/ReDial/train_data_full.json`
+- `data/ReDial/test_data_full.json`
+- `data/ReDial/item_catalog.json`
+
+### INSPIRED
+
+Place the raw INSPIRED TSV files under `data/INSPIRED/raw/` with this structure:
+
+```text
+data/INSPIRED/raw/
+├── dialog_data/
+│   ├── train.tsv
+│   ├── dev.tsv
+│   └── test.tsv
+├── survey_data/
+│   ├── list_of_dialog_ids_with_movie_id_all.tsv
+│   └── seeker_demographic.tsv
+└── movie_database.tsv
 ```
 
-### 3. Full pipeline (pretrain + RL)
+Convert/rebuild artifacts:
 
-```bash
-cd src
-python train.py --mode both --config ../config.yaml --dataset INSPIRED
+```powershell
+python data/convert_inspired.py --raw_root data/INSPIRED/raw --out_root data/INSPIRED
 ```
 
-### 4. Thesis-grade profile (recommended for final experiments)
+This generates:
 
-```bash
-cd src
-python train.py --mode both --config ../config_thesis.yaml --dataset ReDial --eval_output ../logs/ReDial_thesis_ope.json
+- `data/INSPIRED/train_data.json`
+- `data/INSPIRED/val_data.json`
+- `data/INSPIRED/test_data.json`
+- `data/INSPIRED/train_data_full.json`
+- `data/INSPIRED/item_catalog.json`
+
+## Training
+
+All commands below can be run from the repository root.
+
+### ReDial: full pipeline (pretrain + RL)
+
+```powershell
+python src/train.py --mode both --config config_redial.yaml --dataset ReDial --eval_output logs/ReDial_train_eval.json
 ```
 
-Run `--refresh_splits` only once when you intentionally want to regenerate train/val/test files.
-For final reported comparisons, keep splits fixed across all runs.
+### INSPIRED: full pipeline (pretrain + RL)
 
-### 5. Test-only evaluation (no RL, no pretraining)
-
-```bash
-cd src
-python train.py --mode test --config ../config.yaml --dataset ReDial --checkpoint best_rl_model.pt --eval_output ../logs/ReDial_test_ope.json
+```powershell
+python src/train.py --mode both --config config_inspired.yaml --dataset INSPIRED --eval_output logs/INSPIRED_train_eval.json
 ```
 
-`--mode test` requires `--checkpoint` and evaluates the loaded model on validation/test splits using OPE.
-Use `--eval_output` in RL or test modes to save evaluation metrics as a JSON report for paper comparison.
+### Training modes
 
-The thesis profile increases training budget, strengthens validation split policy, and enables periodic OPE-driven model selection.
+`src/train.py` supports:
 
-Supported dataset names (case-insensitive aliases are accepted):
+- `--mode pretrain`: supervised pretraining only (saves `best_model.pt`)
+- `--mode rl`: RL fine-tuning only (recommended to pass `--checkpoint best_model.pt`)
+- `--mode both`: pretrain then RL
+- `--mode test`: test-only evaluation (requires `--checkpoint`)
 
-- ReDial
-- GoRecDial
-- INSPIRED
-- MovieLens_1M
-- Yelp
-- DuRecDial
-- LastFM
-- OpenDialKG
+Examples:
 
-## OpenDialKG Preparation
+```powershell
+# RL-only warm start from the supervised checkpoint
+python src/train.py --mode rl --config config_redial.yaml --dataset ReDial --checkpoint best_model.pt --eval_output logs/ReDial_train_eval.json
 
-If you downloaded OpenDialKG raw files (`data/OpenDialKG/raw/opendialkg.csv` and KG txt files),
-run the converter once to generate MO-CRS-ready splits and a dataset-specific catalog:
-
-```bash
-python data/convert_opendialkg.py --dataset_dir data/OpenDialKG
+# W&B logging (optional)
+python src/train.py --mode both --config config_redial.yaml --dataset ReDial --wandb
 ```
 
-This creates:
+## Test-only evaluation (full metric suite)
 
-- `data/OpenDialKG/train_data_full.json` (immutable full source)
-- `data/OpenDialKG/train_data.json`
-- `data/OpenDialKG/val_data.json`
-- `data/OpenDialKG/test_data.json`
-- `data/OpenDialKG/item_catalog.json`
+`--mode test` runs OPE on the test split and also runs the full test evaluation suite implemented in `src/test_evaluation_suite.py`.
 
-Then train/test normally by selecting `--dataset OpenDialKG`.
+ReDial:
 
-## Key Config Toggles
-
-Main switches in `config.yaml` and `config_thesis.yaml`:
-
-- `model.personalization.cold_start.enabled`
-- `model.personalization.thompson_sampling.enabled`
-- `model.personalization.thompson_sampling.num_samples`
-- `model.explanation_generator.generation_mode` (`template`, `neural`, `hybrid`)
-
-For thesis-style runs, keep `generation_mode: hybrid` unless you need deterministic template-only outputs.
-
-## Checkpoints
-
-Checkpoints are saved to dataset-specific folders under `checkpoints/` (configured by `logging.save_dir`).
-
-Typical files:
-
-- `checkpoints/ReDial/best_model.pt` (best supervised checkpoint)
-- `checkpoints/ReDial/rl_checkpoint_ep*.pt` (periodic RL checkpoints)
-- `checkpoints/ReDial/best_rl_model.pt` (best RL checkpoint by DR score during evaluation, if produced)
-
-When loading a checkpoint name (not full path), `train.py` first looks in the selected dataset folder, then falls back to the checkpoint root for backward compatibility.
-
-## Offline Evaluation (OPE)
-
-At the end of RL training, `train.py` prints offline metrics from `src/off_policy_evaluation.py`.
-If `--eval_output` is provided, the same OPE metrics are also saved to a JSON file.
-
-Reported metrics include:
-
-- `ips`
-- `snips`
-- `dr`
-- `dm`
-- `dr_ci_low`, `dr_ci_high`
-- `dm_ci_low`, `dm_ci_high`
-- `behavior_recommend_rate`
-- `logged_reward_mean`, `logged_reward_std`
-- `num_samples`
-
-Note: this is still an offline/proxy evaluation setup, so interpret with care and always report assumptions.
-
-## Aggregate Evaluation CSV
-
-You can aggregate all per-dataset JSON evaluation outputs into one thesis-ready CSV table:
-
-```bash
-cd src
-python aggregate_eval_reports.py --input_dir ../logs --recursive --output ../logs/thesis_eval_summary.csv
+```powershell
+python src/train.py --mode test --config config_redial.yaml --dataset ReDial --checkpoint best_rl_model.pt --eval_output logs/ReDial_best_rl_test_eval.json
 ```
 
-Each row in the CSV corresponds to one dataset/split (`validation` or `test`) from an evaluation JSON report.
+INSPIRED:
 
-## Notes for Reproducibility
-
-- Run training commands from `src/` as shown above so relative config paths resolve correctly.
-- If neural explanation loading fails because pretrained GPT-2 assets are unavailable, the system continues with template generation automatically.
-- Existing checkpoints trained with older policy action dimensions are not guaranteed to be directly comparable with current configs.
-
-## Baselines and Ablations
-
-Use the experiment runner:
-
-```bash
-cd src
-python run_experiments.py --config ../config_thesis.yaml --episodes 2000 --seeds 42 43 44 --output ../logs/ablation_results_thesis.json
+```powershell
+python src/train.py --mode test --config config_inspired.yaml --dataset INSPIRED --checkpoint best_rl_model.pt --eval_output logs/INSPIRED_best_rl_test_eval.json
 ```
 
-This runs seeded variants and writes aggregate results for reproducible comparison.
+Checkpoint selection notes:
 
-## Demo
+- `best_model.pt` is the best supervised checkpoint.
+- `best_rl_model.pt` is the best RL checkpoint (saved during RL).
+- Test mode loads **exactly what you pass in `--checkpoint`**.
 
-Interactive demo:
+### Metric groups
 
-```bash
-python demo.py
+The test evaluation JSON includes:
+
+- Recommendation quality: Recall@{10,50}, MRR@{10,50}, NDCG@{10,50}
+- Conversation quality: Dist-2/3, BLEU-2/3, SR@{5,10,20}, AT
+- Diversity: ILD@{5,10,20}, genre/category coverage, calibration error
+- Fairness (exposure distribution): A@{5,10,20}, Gini (G), KL-to-uniform (L), tail-head difference (D), normalized entropy
+- Transparency proxies: groundedness/factual consistency, hallucination proxy, persuasiveness, transparency, trust, usefulness
+
+## Ablations
+
+Use the stable runner in `src/run_experiments.py`. It:
+
+- starts every variant/seed from the same supervised checkpoint (`best_model.pt` by default)
+- fine-tunes RL per variant/seed
+- evaluates the **best RL checkpoint** found during that run
+- writes a single JSON containing per-seed results + aggregates
+
+ReDial example:
+
+```powershell
+python src/run_experiments.py --config config_redial.yaml --dataset ReDial --checkpoint best_model.pt --episodes 1000 --seeds 42 43 44 --output logs/ReDial_ablation_results.json
 ```
 
-The demo initializes the model from config and runs inference interactively. If you want demo outputs from a specific trained checkpoint, load that checkpoint before demo inference (or extend `demo.py` with a checkpoint argument).
+INSPIRED example:
+
+```powershell
+python src/run_experiments.py --config config_inspired.yaml --dataset INSPIRED --checkpoint best_model.pt --episodes 1000 --seeds 42 43 44 --output logs/INSPIRED_ablation_results.json
+```
+
+Variants included:
+
+- `full_model`
+- `ablation_no_diversity`
+- `ablation_no_fairness`
+- `ablation_accuracy_only`
+- `baseline_no_bc_warmstart`
+
+To run only a subset:
+
+```powershell
+python src/run_experiments.py --config config_redial.yaml --dataset ReDial --variants full_model ablation_no_fairness --output logs/ReDial_ablation_subset.json
+```
+
+## Plotting (thesis-ready figures)
+
+Generate a compact dashboard + individual figures from a checkpoint (train_stats) and an evaluation JSON:
+
+```powershell
+python plot_training_eval.py --config config_redial.yaml --output_dir logs/thesis_plots/ReDial
+python plot_training_eval.py --config config_inspired.yaml --output_dir logs/thesis_plots/INSPIRED
+```
+
+Optional overrides:
+
+- `--checkpoint checkpoints/<DATASET>/best_rl_model.pt`
+- `--eval_json logs/<DATASET>_best_rl_test_eval.json`
+
+## Checkpoints and outputs
+
+Checkpoints are saved under:
+
+- `checkpoints/ReDial/`
+- `checkpoints/INSPIRED/`
+
+Common files:
+
+- `best_model.pt` (best supervised model)
+- `best_rl_model.pt` (best RL model)
+- `checkpoint_epoch_*.pt` (periodic supervised checkpoints)
+- `rl_checkpoint_ep*.pt` (periodic RL checkpoints)
+
+Evaluation JSON reports are written where you point `--eval_output` (typically under `logs/`).
 
 ## References
 

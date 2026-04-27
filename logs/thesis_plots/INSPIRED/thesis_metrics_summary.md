@@ -1,0 +1,45 @@
+# Thesis Metrics Summary
+
+| Group | Metric | Value |
+|---|---:|---:|
+| OPE | ips | 0.2750 |
+| OPE | snips | 0.2710 |
+| OPE | dr | 0.2693 |
+| OPE | dm | 0.0283 |
+| OPE | logged_reward_mean | 0.2316 |
+| Recommendation | Recall@10 | 0.3293 |
+| Recommendation | Recall@50 | 0.5122 |
+| Recommendation | MRR@10 | 0.2142 |
+| Recommendation | MRR@50 | 0.2216 |
+| Recommendation | NDCG@10 | 0.2428 |
+| Recommendation | NDCG@50 | 0.2812 |
+| Conversation | success_rate | 0.8333 |
+| Conversation | SR@5 | 0.8333 |
+| Conversation | SR@10 | 0.8333 |
+| Conversation | SR@20 | 0.8333 |
+| Conversation | AT | 4.3667 |
+| Conversation | Dist-2 | 0.0421 |
+| Conversation | Dist-3 | 0.0518 |
+| Conversation | BLEU-2 | 0.0000 |
+| Conversation | BLEU-3 | 0.0000 |
+| Action | ask_rate | 0.2290 |
+| Action | recommend_rate | 0.7710 |
+| Action | clarify_rate | 0.0000 |
+| Action | end_rate | 0.0000 |
+| Diversity | ILD@10 | 0.9954 |
+| Diversity | GenreCoverage@10 | 0.8800 |
+| Diversity | CategoryCoverage@10 | 0.8800 |
+| Diversity | CalibrationError@10 | 0.4739 |
+| Fairness | A@10 | 77.4745 |
+| Fairness | G@10 | 0.9355 |
+| Fairness | L@10 | 2.5276 |
+| Fairness | D@10 | 0.4921 |
+| Fairness | HeadShare@10 | 0.2540 |
+| Fairness | TailShare@10 | 0.7460 |
+| Fairness | Entropy@10 | 0.6639 |
+| Transparency | groundedness_factual_consistency | 1.0000 |
+| Transparency | deception_hallucination_rate | 0.0000 |
+| Transparency | persuasiveness_score | 1.0000 |
+| Transparency | transparency_score | 1.0000 |
+| Transparency | trust_score | 1.0000 |
+| Transparency | usefulness_score | 1.0000 |
