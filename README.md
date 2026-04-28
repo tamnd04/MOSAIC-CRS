@@ -213,7 +213,7 @@ To run only a subset:
 python src/run_experiments.py --config config_redial.yaml --dataset ReDial --variants full_model ablation_no_fairness --output logs/ReDial_ablation_subset.json
 ```
 
-## Plotting (thesis-ready figures)
+## Plotting
 
 Generate a compact dashboard + individual figures from a checkpoint (train_stats) and an evaluation JSON:
 
