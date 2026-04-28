@@ -35,6 +35,9 @@ checkpoints/
 *.pt
 *.pth
 
+# Baseline models (kept local; not pushed)
+baseline_models/
+
 # Notebook checkpoints
 .ipynb_checkpoints/
 
