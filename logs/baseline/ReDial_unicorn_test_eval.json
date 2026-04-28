@@ -1,0 +1,518 @@
+{
+  "mode": "both",
+  "dataset": "ReDial",
+  "model": "UNICORN_project_baseline_dqn_graph",
+  "timestamp": "2026-04-29 00:47:27",
+  "checkpoint": "checkpoints\\baselines\\UNICORN\\ReDial\\best_unicorn_model.pt",
+  "config": {
+    "epochs": 20,
+    "rl_episodes": 3000,
+    "batch_size": 128,
+    "dim": 64,
+    "hidden": 100,
+    "lr": 0.0001,
+    "gamma": 0.999,
+    "max_turn": 15,
+    "max_facets": 32,
+    "cand_num": 10,
+    "cand_item_num": 10,
+    "rec_num": 10,
+    "seed": 42,
+    "facets": [
+      "Drama",
+      "Comedy",
+      "Thriller",
+      "Action",
+      "Adventure",
+      "Romance",
+      "Horror",
+      "Crime",
+      "Children",
+      "Sci-Fi",
+      "Fantasy",
+      "Mystery",
+      "Animation",
+      "Music",
+      "History",
+      "Documentary",
+      "War",
+      "Western",
+      "TV Movie",
+      "Foreign",
+      "Biography",
+      "Musical",
+      "Sport",
+      "Film-Noir",
+      "IMAX",
+      "Unknown"
+    ]
+  },
+  "ope": {
+    "not_applicable": true,
+    "reason": "UNICORN learns a stochastic ask-feature/recommend-item DQN policy, but ReDial/INSPIRED logs do not contain behavior-policy propensities for UNICORN actions."
+  },
+  "test_evaluation": {
+    "split": "test",
+    "recommendation_results": {
+      "Recall@10": 0.21729625681118217,
+      "Recall@50": 0.26194509056449355,
+      "MRR@10": 0.27866323146173894,
+      "MRR@50": 0.2829226348998974,
+      "NDCG@10": 0.16455513682399336,
+      "NDCG@50": 0.18103606654234003,
+      "num_conversations_used": 670,
+      "num_conversations_total": 671
+    },
+    "conversation_results": {
+      "Dist-2": 0.11074458058435438,
+      "Dist-3": 0.15714285714285714,
+      "BLEU-2": 0.0,
+      "BLEU-3": 0.0,
+      "AT": 8.513432835820895,
+      "success_rate": 0.8059701492537313,
+      "num_generated_explanations": 670,
+      "baseline_dialogue_note": "UNICORN DQN adapter learns ask-feature/recommend-item policy; clarify/end are not explicit UNICORN actions.",
+      "SR@5": 0.46119402985074626,
+      "SR@10": 0.7970149253731343,
+      "SR@20": 0.8522388059701492
+    },
+    "diversity": {
+      "ILD@5": 0.1616975242833452,
+      "GenreCoverage@5": 0.92,
+      "CategoryCoverage@5": 0.92,
+      "CalibrationError@5": 0.45104228686700504,
+      "ILD@10": 0.17563792150359317,
+      "GenreCoverage@10": 0.92,
+      "CategoryCoverage@10": 0.92,
+      "CalibrationError@10": 0.4465788862181985,
+      "ILD@20": 0.2027644764897318,
+      "GenreCoverage@20": 0.92,
+      "CategoryCoverage@20": 0.92,
+      "CalibrationError@20": 0.4373033288436754
+    },
+    "fairness": {
+      "A@5": 1.6060712273570674,
+      "G@5": 0.9161545930610739,
+      "L@5": 0.9578438103924807,
+      "D@5": -0.2519402985074626,
+      "HeadShare@5": 0.6259701492537313,
+      "TailShare@5": 0.3740298507462687,
+      "Entropy@5": 0.7423909080111092,
+      "A@10": 1.43933085414619,
+      "G@10": 0.8585732380569451,
+      "L@10": 0.8917237615903962,
+      "D@10": -0.24716417910447763,
+      "HeadShare@10": 0.6235820895522388,
+      "TailShare@10": 0.3764179104477612,
+      "Entropy@10": 0.8032077903115692,
+      "A@20": 1.5445251525503445,
+      "G@20": 0.8025124097436236,
+      "L@20": 0.933944052063857,
+      "D@20": -0.14835820895522378,
+      "HeadShare@20": 0.5741791044776119,
+      "TailShare@20": 0.4258208955223881,
+      "Entropy@20": 0.8441539703525841
+    },
+    "transparency": {
+      "groundedness_factual_consistency": 1.0,
+      "deception_hallucination_rate": 0.0,
+      "persuasiveness_score": 1.0,
+      "transparency_score": 1.0,
+      "trust_score": 1.0,
+      "usefulness_score": 1.0,
+      "baseline_explanation_note": "Template explanation generated for comparable transparency fields; UNICORN itself is not a neural explanation generator."
+    },
+    "online_rollout": {
+      "episodes": 670,
+      "num_test_conversations": 671,
+      "rollout_horizon": 15,
+      "success_rate": 0.8059701492537313,
+      "AT": 8.513432835820895,
+      "action_ratios": {
+        "ask": 0.4900070126227209,
+        "recommend": 0.48720196353436185,
+        "clarify": 0.0,
+        "end": 0.02279102384291725
+      },
+      "num_catalog_items": 6924,
+      "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+    }
+  },
+  "training": {
+    "history": [
+      {
+        "stage": "dqn_rl",
+        "episode": 250,
+        "loss": 0.002489817662863061,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.81,
+          "AT": 8.325,
+          "action_ratios": {
+            "ask": 0.35855855855855856,
+            "recommend": 0.6186186186186187,
+            "clarify": 0.0,
+            "end": 0.022822822822822823
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.21920436507936508,
+          "Recall@50": 0.25158928571428574,
+          "MRR@10": 0.3029126984126984,
+          "MRR@50": 0.30587152835576115,
+          "NDCG@10": 0.17162761370605054,
+          "NDCG@50": 0.18301736976571703,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.22579705051898796
+      },
+      {
+        "stage": "dqn_rl",
+        "episode": 500,
+        "loss": 0.0030303976172581315,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.76,
+          "AT": 8.71,
+          "action_ratios": {
+            "ask": 0.38461538461538464,
+            "recommend": 0.5878300803673938,
+            "clarify": 0.0,
+            "end": 0.027554535017221583
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.2192063492063492,
+          "Recall@50": 0.2614642857142857,
+          "MRR@10": 0.2768452380952381,
+          "MRR@50": 0.28016250708762463,
+          "NDCG@10": 0.16491922132767314,
+          "NDCG@50": 0.17976668001436444,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.19040606648775685
+      },
+      {
+        "stage": "dqn_rl",
+        "episode": 750,
+        "loss": 0.0031233046273700894,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.78,
+          "AT": 8.695,
+          "action_ratios": {
+            "ask": 0.3801035077630822,
+            "recommend": 0.5945945945945946,
+            "clarify": 0.0,
+            "end": 0.025301897642323174
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.21066666666666667,
+          "Recall@50": 0.2547559523809524,
+          "MRR@10": 0.23582936507936508,
+          "MRR@50": 0.2393698070440017,
+          "NDCG@10": 0.15120300109198628,
+          "NDCG@50": 0.167817012353687,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.19412393355173058
+      },
+      {
+        "stage": "dqn_rl",
+        "episode": 1000,
+        "loss": 0.0033279584278352557,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.83,
+          "AT": 8.165,
+          "action_ratios": {
+            "ask": 0.4237599510104103,
+            "recommend": 0.5554194733619106,
+            "clarify": 0.0,
+            "end": 0.020820575627679118
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.2316130952380952,
+          "Recall@50": 0.27547023809523813,
+          "MRR@10": 0.3050753968253968,
+          "MRR@50": 0.3096703057789341,
+          "NDCG@10": 0.18049723959965105,
+          "NDCG@50": 0.19733214107822442,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.24571403125326355
+      },
+      {
+        "stage": "dqn_rl",
+        "episode": 1250,
+        "loss": 0.003571115282829851,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.825,
+          "AT": 8.375,
+          "action_ratios": {
+            "ask": 0.4173134328358209,
+            "recommend": 0.5617910447761194,
+            "clarify": 0.0,
+            "end": 0.020895522388059702
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.22982539682539682,
+          "Recall@50": 0.27514880952380955,
+          "MRR@10": 0.31786904761904766,
+          "MRR@50": 0.32269440468824134,
+          "NDCG@10": 0.18551877609679251,
+          "NDCG@50": 0.20225220427056553,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.23754264410824738
+      },
+      {
+        "stage": "dqn_rl",
+        "episode": 1500,
+        "loss": 0.004101524010766297,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.85,
+          "AT": 8.415,
+          "action_ratios": {
+            "ask": 0.5092097445038621,
+            "recommend": 0.47296494355317886,
+            "clarify": 0.0,
+            "end": 0.017825311942959002
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.22525992063492062,
+          "Recall@50": 0.2768630952380952,
+          "MRR@10": 0.2606984126984127,
+          "MRR@50": 0.26620267859671887,
+          "NDCG@10": 0.16464891981263916,
+          "NDCG@50": 0.18291877208850862,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.24182075618475007
+      },
+      {
+        "stage": "dqn_rl",
+        "episode": 1750,
+        "loss": 0.006195876938290894,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.865,
+          "AT": 7.99,
+          "action_ratios": {
+            "ask": 0.5106382978723404,
+            "recommend": 0.47246558197747185,
+            "clarify": 0.0,
+            "end": 0.016896120150187734
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.23313492063492064,
+          "Recall@50": 0.26973214285714286,
+          "MRR@10": 0.3049583333333334,
+          "MRR@50": 0.3083700621753522,
+          "NDCG@10": 0.18161072603544684,
+          "NDCG@50": 0.1946456778830447,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.2674693674293116
+      },
+      {
+        "stage": "dqn_rl",
+        "episode": 2000,
+        "loss": 0.010354220429435372,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.835,
+          "AT": 8.185,
+          "action_ratios": {
+            "ask": 0.5204642638973732,
+            "recommend": 0.4593769089798412,
+            "clarify": 0.0,
+            "end": 0.020158827122785584
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.22447420634920637,
+          "Recall@50": 0.2724107142857143,
+          "MRR@10": 0.2783869047619048,
+          "MRR@50": 0.28339191025503796,
+          "NDCG@10": 0.16936931634231006,
+          "NDCG@50": 0.18654548431281573,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.24263983549068419
+      },
+      {
+        "stage": "dqn_rl",
+        "episode": 2250,
+        "loss": 0.01767569040879607,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.81,
+          "AT": 8.515,
+          "action_ratios": {
+            "ask": 0.4967704051673517,
+            "recommend": 0.48091603053435117,
+            "clarify": 0.0,
+            "end": 0.022313564298297124
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.22575992063492062,
+          "Recall@50": 0.2690297619047619,
+          "MRR@10": 0.2712480158730159,
+          "MRR@50": 0.27565738091028336,
+          "NDCG@10": 0.16715379144811174,
+          "NDCG@50": 0.18311352327566321,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.22149673051184463
+      },
+      {
+        "stage": "dqn_rl",
+        "episode": 2500,
+        "loss": 0.02758843095973134,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.83,
+          "AT": 8.435,
+          "action_ratios": {
+            "ask": 0.5044457617071725,
+            "recommend": 0.4754001185536455,
+            "clarify": 0.0,
+            "end": 0.02015411973918198
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.23271825396825396,
+          "Recall@50": 0.27164880952380954,
+          "MRR@10": 0.2811011904761905,
+          "MRR@50": 0.2858590511149095,
+          "NDCG@10": 0.17254973834519716,
+          "NDCG@50": 0.18665095542032958,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.2364113365579283
+      },
+      {
+        "stage": "dqn_rl",
+        "episode": 2750,
+        "loss": 0.03431831637397408,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.725,
+          "AT": 9.275,
+          "action_ratios": {
+            "ask": 0.44150943396226416,
+            "recommend": 0.5288409703504043,
+            "clarify": 0.0,
+            "end": 0.029649595687331536
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.20920238095238097,
+          "Recall@50": 0.25407142857142856,
+          "MRR@10": 0.2412638888888889,
+          "MRR@50": 0.24656112385499815,
+          "NDCG@10": 0.15016582736592374,
+          "NDCG@50": 0.16730777680504538,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.15125399880651808
+      },
+      {
+        "stage": "dqn_rl",
+        "episode": 3000,
+        "loss": 0.04155793806537986,
+        "online_val": {
+          "episodes": 200,
+          "num_test_conversations": 671,
+          "rollout_horizon": 15,
+          "success_rate": 0.79,
+          "AT": 8.96,
+          "action_ratios": {
+            "ask": 0.4994419642857143,
+            "recommend": 0.4771205357142857,
+            "clarify": 0.0,
+            "end": 0.0234375
+          },
+          "num_catalog_items": 6924,
+          "baseline_note": "UNICORN DQN learns ask-feature/recommend-item actions over a user-item-feature graph; clarify is not an explicit UNICORN action."
+        },
+        "rec_val": {
+          "Recall@10": 0.21150198412698415,
+          "Recall@50": 0.2759285714285714,
+          "MRR@10": 0.25110714285714286,
+          "MRR@50": 0.2575628989883707,
+          "NDCG@10": 0.1576021709059951,
+          "NDCG@50": 0.1797335729160701,
+          "num_conversations_used": 200,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.19224612862564347
+      }
+    ],
+    "implementation_note": "Corrected UNICORN adapter uses original-style graph-state GCN + dueling DQN + prioritized replay instead of EAR-style supervised policy imitation."
+  }
+}

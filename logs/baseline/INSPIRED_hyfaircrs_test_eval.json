@@ -1,0 +1,837 @@
+{
+  "mode": "both",
+  "dataset": "INSPIRED",
+  "model": "HyFairCRS_project_baseline",
+  "timestamp": "2026-04-28 17:48:25",
+  "checkpoint": "checkpoints\\baselines\\HyFairCRS\\INSPIRED\\best_hyfaircrs_model.pt",
+  "config": {
+    "epochs": 40,
+    "batch_size": 64,
+    "dim": 128,
+    "lr": 0.002,
+    "entity_graph_weight": 0.3,
+    "concept_graph_weight": 0.25,
+    "fusion_weight": 1.0,
+    "mim_weight": 0.15,
+    "fairness_weight": 0.05,
+    "tail_bonus_weight": 0.08,
+    "candidate_size": 100,
+    "max_concepts": 8000,
+    "min_concept_count": 2,
+    "seed": 42
+  },
+  "ope": {
+    "not_applicable": true,
+    "reason": "HyFairCRS baseline adapter is an offline recommender, not a stochastic dialogue policy with logged propensities."
+  },
+  "test_evaluation": {
+    "split": "test",
+    "recommendation_results": {
+      "Recall@10": 0.5609756097560976,
+      "Recall@50": 0.7682926829268293,
+      "MRR@10": 0.3515389082462253,
+      "MRR@50": 0.35953109066107153,
+      "NDCG@10": 0.40139204579481824,
+      "NDCG@50": 0.44442155865615357,
+      "num_conversations_used": 82,
+      "num_conversations_total": 99
+    },
+    "conversation_results": {
+      "Dist-2": 0.23550724637681159,
+      "Dist-3": 0.35514612452350697,
+      "BLEU-2": 0.0,
+      "BLEU-3": 0.0,
+      "AT": 8.414634146341463,
+      "success_rate": 0.6097560975609756,
+      "num_generated_explanations": 82,
+      "baseline_dialogue_note": "HyFairCRS is evaluated as a one-shot recommender baseline; SR@K means target found in top-K, not learned multi-turn policy success.",
+      "SR@5": 0.4878048780487805,
+      "SR@10": 0.5487804878048781,
+      "SR@20": 0.6097560975609756
+    },
+    "diversity": {
+      "ILD@5": 0.7868936314363143,
+      "GenreCoverage@5": 0.84,
+      "CategoryCoverage@5": 0.84,
+      "CalibrationError@5": 0.5080968099318852,
+      "ILD@10": 0.8131188970619865,
+      "GenreCoverage@10": 0.92,
+      "CategoryCoverage@10": 0.92,
+      "CalibrationError@10": 0.5143754409276432,
+      "ILD@20": 0.8337286027337375,
+      "GenreCoverage@20": 0.92,
+      "CategoryCoverage@20": 0.92,
+      "CalibrationError@20": 0.5394946744882959
+    },
+    "fairness": {
+      "A@5": 494.1609756097561,
+      "G@5": 0.04841846576645614,
+      "L@5": 6.2048829129536065,
+      "D@5": -0.9073170731707316,
+      "HeadShare@5": 0.9536585365853658,
+      "TailShare@5": 0.046341463414634146,
+      "Entropy@5": 0.6298561831369751,
+      "A@10": 347.9926829268293,
+      "G@10": 0.09336469096001898,
+      "L@10": 5.855050956156937,
+      "D@10": -0.6170731707317074,
+      "HeadShare@10": 0.8085365853658537,
+      "TailShare@10": 0.19146341463414634,
+      "Entropy@10": 0.7165221421767317,
+      "A@20": 253.59451219512195,
+      "G@20": 0.16944481145786527,
+      "L@20": 5.539672131276399,
+      "D@20": -0.1365853658536585,
+      "HeadShare@20": 0.5682926829268292,
+      "TailShare@20": 0.4317073170731707,
+      "Entropy@20": 0.793785499468892
+    },
+    "transparency": {
+      "groundedness_factual_consistency": 1.0,
+      "deception_hallucination_rate": 0.0,
+      "persuasiveness_score": 1.0,
+      "transparency_score": 1.0,
+      "trust_score": 1.0,
+      "usefulness_score": 1.0,
+      "baseline_explanation_note": "Template explanation generated for comparable transparency fields; HyFairCRS itself is not evaluated as your project's explanation generator."
+    },
+    "online_rollout": {
+      "episodes": 99,
+      "num_test_conversations": 99,
+      "rollout_horizon": 20,
+      "action_ratios": {
+        "ask": 0.0,
+        "recommend": 1.0,
+        "clarify": 0.0,
+        "end": 0.0
+      },
+      "num_catalog_items": 1846,
+      "baseline_note": "HyFairCRS is not trained as a dialogue policy in this adapter; this is a one-shot recommendation evaluation."
+    }
+  },
+  "training": {
+    "history": [
+      {
+        "epoch": 1,
+        "loss": 7.254373507066206,
+        "rec_loss": 7.194727420806885,
+        "hyfair_ssl_loss": 0.2890011126344854,
+        "fairness_regularization_loss": 0.3259203461083499,
+        "val": {
+          "Recall@10": 0.5058823529411764,
+          "Recall@50": 0.9294117647058824,
+          "MRR@10": 0.18373015873015874,
+          "MRR@50": 0.20472025887209472,
+          "NDCG@10": 0.2576489584426299,
+          "NDCG@50": 0.352536853756968,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.3545702260244816
+      },
+      {
+        "epoch": 2,
+        "loss": 6.744970234957608,
+        "rec_loss": 6.702729918740013,
+        "hyfair_ssl_loss": 0.20048730346289548,
+        "fairness_regularization_loss": 0.24334420399232345,
+        "val": {
+          "Recall@10": 0.5294117647058824,
+          "Recall@50": 0.9176470588235294,
+          "MRR@10": 0.2872362278244631,
+          "MRR@50": 0.3042914154669348,
+          "NDCG@10": 0.34511939895100757,
+          "NDCG@50": 0.42915713622057483,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.41647432931539236
+      },
+      {
+        "epoch": 3,
+        "loss": 6.4656312682411885,
+        "rec_loss": 6.441227999600497,
+        "hyfair_ssl_loss": 0.1097024841742082,
+        "fairness_regularization_loss": 0.15895785933191126,
+        "val": {
+          "Recall@10": 0.5294117647058824,
+          "Recall@50": 0.8823529411764706,
+          "MRR@10": 0.31775910364145654,
+          "MRR@50": 0.3331285904025479,
+          "NDCG@10": 0.3690755380231657,
+          "NDCG@50": 0.4451667604407551,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4309635531540464
+      },
+      {
+        "epoch": 4,
+        "loss": 6.331876234574751,
+        "rec_loss": 6.312506545673717,
+        "hyfair_ssl_loss": 0.08367059075019577,
+        "fairness_regularization_loss": 0.13638254864649338,
+        "val": {
+          "Recall@10": 0.5411764705882353,
+          "Recall@50": 0.9058823529411765,
+          "MRR@10": 0.337609710550887,
+          "MRR@50": 0.35173949015473116,
+          "NDCG@10": 0.38666749144445456,
+          "NDCG@50": 0.46263694340108713,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4463849758804424
+      },
+      {
+        "epoch": 5,
+        "loss": 6.241740876978094,
+        "rec_loss": 6.227161277424205,
+        "hyfair_ssl_loss": 0.05276437069882046,
+        "fairness_regularization_loss": 0.13330022381110626,
+        "val": {
+          "Recall@10": 0.5529411764705883,
+          "Recall@50": 0.8235294117647058,
+          "MRR@10": 0.33648459383753504,
+          "MRR@50": 0.3496752803545677,
+          "NDCG@10": 0.38900730448674176,
+          "NDCG@50": 0.4493152762072702,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4522730047496313
+      },
+      {
+        "epoch": 6,
+        "loss": 6.181227120486173,
+        "rec_loss": 6.168902353806929,
+        "hyfair_ssl_loss": 0.04033484276045452,
+        "fairness_regularization_loss": 0.12548932229930704,
+        "val": {
+          "Recall@10": 0.5647058823529412,
+          "Recall@50": 0.8235294117647058,
+          "MRR@10": 0.30728758169934645,
+          "MRR@50": 0.3188314141599044,
+          "NDCG@10": 0.3690931362750102,
+          "NDCG@50": 0.4252944033464456,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4447577610949464
+      },
+      {
+        "epoch": 7,
+        "loss": 6.129313902421431,
+        "rec_loss": 6.118183439428156,
+        "hyfair_ssl_loss": 0.03584947538646785,
+        "fairness_regularization_loss": 0.11506138403307307,
+        "val": {
+          "Recall@10": 0.6,
+          "Recall@50": 0.8117647058823529,
+          "MRR@10": 0.3242436974789916,
+          "MRR@50": 0.33258432543563976,
+          "NDCG@10": 0.3909326864505338,
+          "NDCG@50": 0.4351237221557834,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.47167517975348516
+      },
+      {
+        "epoch": 8,
+        "loss": 6.082096489993009,
+        "rec_loss": 6.072676962072199,
+        "hyfair_ssl_loss": 0.02641685764220628,
+        "fairness_regularization_loss": 0.10914019766178998,
+        "val": {
+          "Recall@10": 0.6,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.3467880485527544,
+          "MRR@50": 0.3543206463395388,
+          "NDCG@10": 0.40686654482923473,
+          "NDCG@50": 0.4445177877929072,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.48176090040078307
+      },
+      {
+        "epoch": 9,
+        "loss": 6.047245719216087,
+        "rec_loss": 6.038627321069891,
+        "hyfair_ssl_loss": 0.02354853160002015,
+        "fairness_regularization_loss": 0.10172036086971109,
+        "val": {
+          "Recall@10": 0.5764705882352941,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.3624136321195145,
+          "MRR@50": 0.37188348079013545,
+          "NDCG@10": 0.4147148396080399,
+          "NDCG@50": 0.45884332223994295,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.47704468499259917
+      },
+      {
+        "epoch": 10,
+        "loss": 6.014775709672407,
+        "rec_loss": 6.006351817737926,
+        "hyfair_ssl_loss": 0.024401193823326717,
+        "fairness_regularization_loss": 0.09527435356920416,
+        "val": {
+          "Recall@10": 0.6,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.36332399626517276,
+          "MRR@50": 0.3712368308468513,
+          "NDCG@10": 0.4193666737621116,
+          "NDCG@50": 0.4576374237728727,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4894431350697736
+      },
+      {
+        "epoch": 11,
+        "loss": 5.980604952031916,
+        "rec_loss": 5.973528688604182,
+        "hyfair_ssl_loss": 0.018799385479228062,
+        "fairness_regularization_loss": 0.08512637222355063,
+        "val": {
+          "Recall@10": 0.5764705882352941,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.34754435107376286,
+          "MRR@50": 0.3562294156214982,
+          "NDCG@10": 0.4023499342582977,
+          "NDCG@50": 0.44539743558322703,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4697431119110391
+      },
+      {
+        "epoch": 12,
+        "loss": 5.9496376731178975,
+        "rec_loss": 5.943174535577947,
+        "hyfair_ssl_loss": 0.016628081317652355,
+        "fairness_regularization_loss": 0.0793790878220038,
+        "val": {
+          "Recall@10": 0.5882352941176471,
+          "Recall@50": 0.788235294117647,
+          "MRR@10": 0.3554201680672269,
+          "MRR@50": 0.3631406052563329,
+          "NDCG@10": 0.4111521253206969,
+          "NDCG@50": 0.45275313368558207,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4796931598286305
+      },
+      {
+        "epoch": 13,
+        "loss": 5.919280442324552,
+        "rec_loss": 5.913297479802912,
+        "hyfair_ssl_loss": 0.01545019888065078,
+        "fairness_regularization_loss": 0.07330877604809674,
+        "val": {
+          "Recall@10": 0.5647058823529412,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.32463585434173675,
+          "MRR@50": 0.3339258279494866,
+          "NDCG@10": 0.38192996272047497,
+          "NDCG@50": 0.42773767872893,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4527203048793372
+      },
+      {
+        "epoch": 14,
+        "loss": 5.8950864184986465,
+        "rec_loss": 5.889589179645885,
+        "hyfair_ssl_loss": 0.014211300506510517,
+        "fairness_regularization_loss": 0.06731199236078696,
+        "val": {
+          "Recall@10": 0.5764705882352941,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.34310924369747897,
+          "MRR@50": 0.3525339395166347,
+          "NDCG@10": 0.39941896104048535,
+          "NDCG@50": 0.44356593653197374,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.46783024980954796
+      },
+      {
+        "epoch": 15,
+        "loss": 5.8673484108664775,
+        "rec_loss": 5.8627683899619365,
+        "hyfair_ssl_loss": 0.011361682618206198,
+        "fairness_regularization_loss": 0.05751611529426141,
+        "val": {
+          "Recall@10": 0.5882352941176471,
+          "Recall@50": 0.7647058823529411,
+          "MRR@10": 0.33164332399626517,
+          "MRR@50": 0.33931258885030274,
+          "NDCG@10": 0.3928935456659632,
+          "NDCG@50": 0.430857346036478,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.46854728813528135
+      },
+      {
+        "epoch": 16,
+        "loss": 5.8452205224470655,
+        "rec_loss": 5.840679385445335,
+        "hyfair_ssl_loss": 0.01161172842098908,
+        "fairness_regularization_loss": 0.05598811297254129,
+        "val": {
+          "Recall@10": 0.5882352941176471,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.3431839402427638,
+          "MRR@50": 0.35137336647398876,
+          "NDCG@10": 0.4021057708736826,
+          "NDCG@50": 0.442635493102938,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.47407969020728286
+      },
+      {
+        "epoch": 17,
+        "loss": 5.822017452933571,
+        "rec_loss": 5.818258545615456,
+        "hyfair_ssl_loss": 0.009021397595378485,
+        "fairness_regularization_loss": 0.048114078627391296,
+        "val": {
+          "Recall@10": 0.611764705882353,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.33084500466853406,
+          "MRR@50": 0.33674332431543635,
+          "NDCG@10": 0.3970464405107476,
+          "NDCG@50": 0.4308153353605646,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.48042937275952735
+      },
+      {
+        "epoch": 18,
+        "loss": 5.799106727946889,
+        "rec_loss": 5.79549503326416,
+        "hyfair_ssl_loss": 0.009428724646568298,
+        "fairness_regularization_loss": 0.04394813897934827,
+        "val": {
+          "Recall@10": 0.5764705882352941,
+          "Recall@50": 0.788235294117647,
+          "MRR@10": 0.3482633053221288,
+          "MRR@50": 0.35753046169274727,
+          "NDCG@10": 0.4028839707669379,
+          "NDCG@50": 0.4485785855396454,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.47007381553873634
+      },
+      {
+        "epoch": 19,
+        "loss": 5.778655052185059,
+        "rec_loss": 5.775425260717219,
+        "hyfair_ssl_loss": 0.008381949229673906,
+        "fairness_regularization_loss": 0.039449418132955376,
+        "val": {
+          "Recall@10": 0.5882352941176471,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.33805322128851545,
+          "MRR@50": 0.346196074410419,
+          "NDCG@10": 0.3977986194862484,
+          "NDCG@50": 0.43836972430229565,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4715460434308312
+      },
+      {
+        "epoch": 20,
+        "loss": 5.759875731034712,
+        "rec_loss": 5.757058837197044,
+        "hyfair_ssl_loss": 0.007109969092363661,
+        "fairness_regularization_loss": 0.03500752659006552,
+        "val": {
+          "Recall@10": 0.611764705882353,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.35514472455648927,
+          "MRR@50": 0.3613534846419983,
+          "NDCG@10": 0.41611442200846066,
+          "NDCG@50": 0.4502566235332136,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4919631102613179
+      },
+      {
+        "epoch": 21,
+        "loss": 5.739527268843218,
+        "rec_loss": 5.736970728093928,
+        "hyfair_ssl_loss": 0.0069300513714551926,
+        "fairness_regularization_loss": 0.030340271917256443,
+        "val": {
+          "Recall@10": 0.5882352941176471,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.32248366013071894,
+          "MRR@50": 0.33014311016143094,
+          "NDCG@10": 0.3859361395345865,
+          "NDCG@50": 0.4257399388041604,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.46428026321619026
+      },
+      {
+        "epoch": 22,
+        "loss": 5.720441818237305,
+        "rec_loss": 5.718052820725874,
+        "hyfair_ssl_loss": 0.00662795373831283,
+        "fairness_regularization_loss": 0.02789894254370169,
+        "val": {
+          "Recall@10": 0.5882352941176471,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.3539309056956116,
+          "MRR@50": 0.36230104025936866,
+          "NDCG@10": 0.4094025186089619,
+          "NDCG@50": 0.4502686496030945,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4787829450052002
+      },
+      {
+        "epoch": 23,
+        "loss": 5.702195427634499,
+        "rec_loss": 5.70008169520985,
+        "hyfair_ssl_loss": 0.006283423186025836,
+        "fairness_regularization_loss": 0.023423242636702278,
+        "val": {
+          "Recall@10": 0.5647058823529412,
+          "Recall@50": 0.7647058823529411,
+          "MRR@10": 0.32521008403361346,
+          "MRR@50": 0.335039558809447,
+          "NDCG@10": 0.3829115230603772,
+          "NDCG@50": 0.42755461447946785,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4531786969366782
+      },
+      {
+        "epoch": 24,
+        "loss": 5.685837615620006,
+        "rec_loss": 5.683829741044478,
+        "hyfair_ssl_loss": 0.006346605464138768,
+        "fairness_regularization_loss": 0.021117750216614117,
+        "val": {
+          "Recall@10": 0.5764705882352941,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.32683940242763776,
+          "MRR@50": 0.3360565477604865,
+          "NDCG@10": 0.38645204188299337,
+          "NDCG@50": 0.43039146194170025,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.46003785985045753
+      },
+      {
+        "epoch": 25,
+        "loss": 5.670790412209251,
+        "rec_loss": 5.669001319191673,
+        "hyfair_ssl_loss": 0.006005201234736226,
+        "fairness_regularization_loss": 0.017767410810020836,
+        "val": {
+          "Recall@10": 0.5647058823529412,
+          "Recall@50": 0.788235294117647,
+          "MRR@10": 0.3145845004668534,
+          "MRR@50": 0.32454899967503703,
+          "NDCG@10": 0.3744265215879907,
+          "NDCG@50": 0.42276028997619153,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.448083829707991
+      },
+      {
+        "epoch": 26,
+        "loss": 5.654057676141912,
+        "rec_loss": 5.652560494162819,
+        "hyfair_ssl_loss": 0.004868309140544046,
+        "fairness_regularization_loss": 0.01533818244934082,
+        "val": {
+          "Recall@10": 0.6,
+          "Recall@50": 0.7647058823529411,
+          "MRR@10": 0.3451307189542484,
+          "MRR@50": 0.3520531804906762,
+          "NDCG@10": 0.40524117532515685,
+          "NDCG@50": 0.4404784061769798,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.48086055515465465
+      },
+      {
+        "epoch": 27,
+        "loss": 5.640549919821999,
+        "rec_loss": 5.639064355330034,
+        "hyfair_ssl_loss": 0.005402087318626317,
+        "fairness_regularization_loss": 0.013507096858864481,
+        "val": {
+          "Recall@10": 0.5764705882352941,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.36725023342670404,
+          "MRR@50": 0.375559334145792,
+          "NDCG@10": 0.41733607787104293,
+          "NDCG@50": 0.4598039205946393,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.47892943864608817
+      },
+      {
+        "epoch": 28,
+        "loss": 5.623004739934748,
+        "rec_loss": 5.621761061928489,
+        "hyfair_ssl_loss": 0.004701664247973399,
+        "fairness_regularization_loss": 0.01076849177479744,
+        "val": {
+          "Recall@10": 0.5764705882352941,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.321531279178338,
+          "MRR@50": 0.3305209855321077,
+          "NDCG@10": 0.3827788618063485,
+          "NDCG@50": 0.4262066287627738,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.45769062217377193
+      },
+      {
+        "epoch": 29,
+        "loss": 5.61125694621693,
+        "rec_loss": 5.610105211084539,
+        "hyfair_ssl_loss": 0.004564119164239277,
+        "fairness_regularization_loss": 0.009343802378597584,
+        "val": {
+          "Recall@10": 0.6,
+          "Recall@50": 0.788235294117647,
+          "MRR@10": 0.35406162464985996,
+          "MRR@50": 0.3619396994399687,
+          "NDCG@10": 0.4116943940058938,
+          "NDCG@50": 0.4517996008684808,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4849053628320349
+      },
+      {
+        "epoch": 30,
+        "loss": 5.5965776876969775,
+        "rec_loss": 5.59555079720237,
+        "hyfair_ssl_loss": 0.00424394104629755,
+        "fairness_regularization_loss": 0.007805598857389255,
+        "val": {
+          "Recall@10": 0.5882352941176471,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.3445331465919701,
+          "MRR@50": 0.3523115413550196,
+          "NDCG@10": 0.40227623288133113,
+          "NDCG@50": 0.4422187062216965,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.47440919317980107
+      },
+      {
+        "epoch": 31,
+        "loss": 5.582946127111262,
+        "rec_loss": 5.581951748241078,
+        "hyfair_ssl_loss": 0.004405744754793969,
+        "fairness_regularization_loss": 0.0066692346960983495,
+        "val": {
+          "Recall@10": 0.5529411764705883,
+          "Recall@50": 0.7647058823529411,
+          "MRR@10": 0.34628851540616246,
+          "MRR@50": 0.3570150008299451,
+          "NDCG@10": 0.39653747201829603,
+          "NDCG@50": 0.4443690177794771,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4568693476994008
+      },
+      {
+        "epoch": 32,
+        "loss": 5.569933847947554,
+        "rec_loss": 5.569046497344971,
+        "hyfair_ssl_loss": 0.004202325447377833,
+        "fairness_regularization_loss": 0.005139954218810255,
+        "val": {
+          "Recall@10": 0.5411764705882353,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.30148459383753495,
+          "MRR@50": 0.31313830710188384,
+          "NDCG@10": 0.3602391981982205,
+          "NDCG@50": 0.41286291189175905,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.42991004990159
+      },
+      {
+        "epoch": 33,
+        "loss": 5.557293154976585,
+        "rec_loss": 5.556522022594105,
+        "hyfair_ssl_loss": 0.0036993878258561545,
+        "fairness_regularization_loss": 0.004323933040723205,
+        "val": {
+          "Recall@10": 0.5647058823529412,
+          "Recall@50": 0.7647058823529411,
+          "MRR@10": 0.34060224089635854,
+          "MRR@50": 0.34990813545871424,
+          "NDCG@10": 0.394350284540136,
+          "NDCG@50": 0.43835639220495665,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4602606948271429
+      },
+      {
+        "epoch": 34,
+        "loss": 5.545005885037509,
+        "rec_loss": 5.544284257021817,
+        "hyfair_ssl_loss": 0.0035927717743272133,
+        "fairness_regularization_loss": 0.0036547199653630905,
+        "val": {
+          "Recall@10": 0.5647058823529412,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.33137254901960783,
+          "MRR@50": 0.34188167709945555,
+          "NDCG@10": 0.3879680471315857,
+          "NDCG@50": 0.43540316276718377,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.45618097335880015
+      },
+      {
+        "epoch": 35,
+        "loss": 5.534425865520131,
+        "rec_loss": 5.53375430540605,
+        "hyfair_ssl_loss": 0.00345739849250425,
+        "fairness_regularization_loss": 0.00306091861884025,
+        "val": {
+          "Recall@10": 0.5647058823529412,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.32821661998132584,
+          "MRR@50": 0.3379490475770752,
+          "NDCG@10": 0.38454819974253684,
+          "NDCG@50": 0.4309068388774101,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.45435284096497663
+      },
+      {
+        "epoch": 36,
+        "loss": 5.523798725821755,
+        "rec_loss": 5.523183129050515,
+        "hyfair_ssl_loss": 0.003376428969204426,
+        "fairness_regularization_loss": 0.0021818927171724763,
+        "val": {
+          "Recall@10": 0.5647058823529412,
+          "Recall@50": 0.7647058823529411,
+          "MRR@10": 0.32511204481792716,
+          "MRR@50": 0.3350658057715363,
+          "NDCG@10": 0.38201420024580324,
+          "NDCG@50": 0.42687330208660296,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.45284502610844013
+      },
+      {
+        "epoch": 37,
+        "loss": 5.510659477927468,
+        "rec_loss": 5.510102792219683,
+        "hyfair_ssl_loss": 0.003057232168926434,
+        "fairness_regularization_loss": 0.001961699178950353,
+        "val": {
+          "Recall@10": 0.5647058823529412,
+          "Recall@50": 0.788235294117647,
+          "MRR@10": 0.33950513538748833,
+          "MRR@50": 0.3496120305514545,
+          "NDCG@10": 0.39276303972145193,
+          "NDCG@50": 0.4413758955380673,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4594857380388294
+      },
+      {
+        "epoch": 38,
+        "loss": 5.502872423692183,
+        "rec_loss": 5.502326185053045,
+        "hyfair_ssl_loss": 0.003094029020179402,
+        "fairness_regularization_loss": 0.0016438750211488116,
+        "val": {
+          "Recall@10": 0.5647058823529412,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.3672875816993464,
+          "MRR@50": 0.3765996409582529,
+          "NDCG@10": 0.4145492169339982,
+          "NDCG@50": 0.4605457978418744,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4726673893255922
+      },
+      {
+        "epoch": 39,
+        "loss": 5.489534204656428,
+        "rec_loss": 5.48905255577781,
+        "hyfair_ssl_loss": 0.002728554229675369,
+        "fairness_regularization_loss": 0.0014501423469151962,
+        "val": {
+          "Recall@10": 0.5764705882352941,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.31908029878618116,
+          "MRR@50": 0.32758977249300064,
+          "NDCG@10": 0.3811242109065889,
+          "NDCG@50": 0.42396463809143653,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.4566212982804247
+      },
+      {
+        "epoch": 40,
+        "loss": 5.482479138807817,
+        "rec_loss": 5.482005986300382,
+        "hyfair_ssl_loss": 0.002686082110316916,
+        "fairness_regularization_loss": 0.001406410613774576,
+        "val": {
+          "Recall@10": 0.5529411764705883,
+          "Recall@50": 0.7764705882352941,
+          "MRR@10": 0.31621848739495795,
+          "MRR@50": 0.32694369827341985,
+          "NDCG@10": 0.373535314974727,
+          "NDCG@50": 0.42307308484827144,
+          "num_conversations_used": 85,
+          "num_conversations_total": 99
+        },
+        "selection_score": 0.44280458713191073
+      }
+    ],
+    "best_score": 0.4919631102613179
+  }
+}

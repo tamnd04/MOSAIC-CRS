@@ -1,0 +1,410 @@
+{
+  "mode": "both",
+  "dataset": "ReDial",
+  "model": "KBRD_project_baseline",
+  "timestamp": "2026-04-28 12:36:05",
+  "checkpoint": "checkpoints\\baselines\\KBRD\\ReDial\\best_kbrd_model.pt",
+  "config": {
+    "epochs": 20,
+    "batch_size": 128,
+    "dim": 128,
+    "lr": 0.002,
+    "graph_weight": 0.35,
+    "candidate_size": 100,
+    "seed": 42
+  },
+  "ope": {
+    "not_applicable": true,
+    "reason": "KBRD baseline is an offline recommender, not a stochastic dialogue policy with logged propensities."
+  },
+  "test_evaluation": {
+    "split": "test",
+    "recommendation_results": {
+      "Recall@10": 0.6032145549309729,
+      "Recall@50": 0.8947179685985657,
+      "MRR@10": 0.6841429755981995,
+      "MRR@50": 0.6863157473568845,
+      "NDCG@10": 0.5436083543921709,
+      "NDCG@50": 0.6563749155410495,
+      "num_conversations_used": 670,
+      "num_conversations_total": 671
+    },
+    "conversation_results": {
+      "Dist-2": 0.023657375934738274,
+      "Dist-3": 0.0323440056087871,
+      "BLEU-2": 0.0,
+      "BLEU-3": 0.0,
+      "AT": 1.2552238805970148,
+      "success_rate": 0.9865671641791045,
+      "num_generated_explanations": 670,
+      "baseline_dialogue_note": "KBRD is evaluated as a one-shot recommender baseline; SR@K means target found in top-K, not learned multi-turn policy success.",
+      "SR@5": 0.8985074626865671,
+      "SR@10": 0.9507462686567164,
+      "SR@20": 0.9865671641791045
+    },
+    "diversity": {
+      "ILD@5": 0.6966986671979748,
+      "GenreCoverage@5": 0.8,
+      "CategoryCoverage@5": 0.8,
+      "CalibrationError@5": 0.3698796524724211,
+      "ILD@10": 0.7311039129398751,
+      "GenreCoverage@10": 0.84,
+      "CategoryCoverage@10": 0.84,
+      "CalibrationError@10": 0.3988216992908119,
+      "ILD@20": 0.7519665038648873,
+      "GenreCoverage@20": 0.96,
+      "CategoryCoverage@20": 0.96,
+      "CalibrationError@20": 0.4379268152085475
+    },
+    "fairness": {
+      "A@5": 185.50985074626865,
+      "G@5": 0.03321158505565758,
+      "L@5": 5.228484056703841,
+      "D@5": -1.0,
+      "HeadShare@5": 1.0,
+      "TailShare@5": 0.0,
+      "Entropy@5": 0.6458113049650692,
+      "A@10": 119.86,
+      "G@10": 0.07125369685368654,
+      "L@10": 4.794632850933413,
+      "D@10": -0.9940298507462686,
+      "HeadShare@10": 0.9970149253731343,
+      "TailShare@10": 0.0029850746268656717,
+      "Entropy@10": 0.7305997257535448,
+      "A@20": 70.80335820895522,
+      "G@20": 0.15316810660734448,
+      "L@20": 4.273931246672884,
+      "D@20": -0.8846268656716418,
+      "HeadShare@20": 0.9423134328358209,
+      "TailShare@20": 0.0576865671641791,
+      "Entropy@20": 0.8145536654858273
+    },
+    "transparency": {
+      "groundedness_factual_consistency": 1.0,
+      "deception_hallucination_rate": 0.0,
+      "persuasiveness_score": 1.0,
+      "transparency_score": 1.0,
+      "trust_score": 1.0,
+      "usefulness_score": 1.0,
+      "baseline_explanation_note": "Template explanation generated for comparable transparency fields; KBRD itself is not an explanation generator."
+    },
+    "online_rollout": {
+      "episodes": 671,
+      "num_test_conversations": 671,
+      "rollout_horizon": 20,
+      "action_ratios": {
+        "ask": 0.0,
+        "recommend": 1.0,
+        "clarify": 0.0,
+        "end": 0.0
+      },
+      "num_catalog_items": 6924,
+      "baseline_note": "KBRD is not trained as a dialogue policy; this is a one-shot recommendation evaluation."
+    }
+  },
+  "training": {
+    "history": [
+      {
+        "epoch": 1,
+        "loss": 7.748516480987137,
+        "val": {
+          "Recall@10": 0.6226101235096737,
+          "Recall@50": 0.9151810999262273,
+          "MRR@10": 0.7155089122105613,
+          "MRR@50": 0.7175112588932608,
+          "NDCG@10": 0.569318499630123,
+          "NDCG@50": 0.6816555900954406,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5959643115698984
+      },
+      {
+        "epoch": 2,
+        "loss": 7.407864079604278,
+        "val": {
+          "Recall@10": 0.6228861759596392,
+          "Recall@50": 0.9170343399728705,
+          "MRR@10": 0.7184598177101925,
+          "MRR@50": 0.7206233254517935,
+          "NDCG@10": 0.5687383081089074,
+          "NDCG@50": 0.681648907545962,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5958122420342733
+      },
+      {
+        "epoch": 3,
+        "loss": 7.348669272500115,
+        "val": {
+          "Recall@10": 0.6306614549867924,
+          "Recall@50": 0.9132588467670926,
+          "MRR@10": 0.7309452416648818,
+          "MRR@50": 0.7327647952717371,
+          "NDCG@10": 0.5745821719168396,
+          "NDCG@50": 0.6838361751652566,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.602621813451816
+      },
+      {
+        "epoch": 4,
+        "loss": 7.315564461012144,
+        "val": {
+          "Recall@10": 0.6320893124866138,
+          "Recall@50": 0.9114496323266938,
+          "MRR@10": 0.7174662668665667,
+          "MRR@50": 0.7197537218191222,
+          "NDCG@10": 0.5724915069190817,
+          "NDCG@50": 0.6806323833537862,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.6022904097028478
+      },
+      {
+        "epoch": 5,
+        "loss": 7.296555787163812,
+        "val": {
+          "Recall@10": 0.6331132053021108,
+          "Recall@50": 0.9093768591894529,
+          "MRR@10": 0.7197853454225268,
+          "MRR@50": 0.7220644373775045,
+          "NDCG@10": 0.5731293552263677,
+          "NDCG@50": 0.6804033202948754,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.6031212802642392
+      },
+      {
+        "epoch": 6,
+        "loss": 7.285014387079188,
+        "val": {
+          "Recall@10": 0.627665333999667,
+          "Recall@50": 0.9089229194926346,
+          "MRR@10": 0.7209383403536327,
+          "MRR@50": 0.7225536058718605,
+          "NDCG@10": 0.5713036761668743,
+          "NDCG@50": 0.6802626489552994,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5994845050832707
+      },
+      {
+        "epoch": 7,
+        "loss": 7.276773608697427,
+        "val": {
+          "Recall@10": 0.613232669379596,
+          "Recall@50": 0.9074932771709383,
+          "MRR@10": 0.7239433854501321,
+          "MRR@50": 0.7258877065025848,
+          "NDCG@10": 0.5618601976008308,
+          "NDCG@50": 0.6762046233573965,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5875464334902134
+      },
+      {
+        "epoch": 8,
+        "loss": 7.270693086933445,
+        "val": {
+          "Recall@10": 0.620376121463078,
+          "Recall@50": 0.9039236334213846,
+          "MRR@10": 0.7216272815972966,
+          "MRR@50": 0.7233815873440754,
+          "NDCG@10": 0.5657383922852575,
+          "NDCG@50": 0.6758095668592439,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5930572568741677
+      },
+      {
+        "epoch": 9,
+        "loss": 7.266420364379883,
+        "val": {
+          "Recall@10": 0.6224839960971895,
+          "Recall@50": 0.9100348635206208,
+          "MRR@10": 0.7141934984888508,
+          "MRR@50": 0.7163229553332755,
+          "NDCG@10": 0.564337485037858,
+          "NDCG@50": 0.6751665155344986,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5934107405675237
+      },
+      {
+        "epoch": 10,
+        "loss": 7.263145694217166,
+        "val": {
+          "Recall@10": 0.6196199519287976,
+          "Recall@50": 0.9038308226838963,
+          "MRR@10": 0.7153137716855856,
+          "MRR@50": 0.7171464797953024,
+          "NDCG@10": 0.5634774270234587,
+          "NDCG@50": 0.673284902856354,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5915486894761282
+      },
+      {
+        "epoch": 11,
+        "loss": 7.2604706480696395,
+        "val": {
+          "Recall@10": 0.6156975083886629,
+          "Recall@50": 0.9041485209776063,
+          "MRR@10": 0.7100539016206182,
+          "MRR@50": 0.7121390323167962,
+          "NDCG@10": 0.5618366502481965,
+          "NDCG@50": 0.6739929687999333,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5887670793184296
+      },
+      {
+        "epoch": 12,
+        "loss": 7.258292016467532,
+        "val": {
+          "Recall@10": 0.6199882201756265,
+          "Recall@50": 0.9037808476714025,
+          "MRR@10": 0.7125472977796815,
+          "MRR@50": 0.7142735991723881,
+          "NDCG@10": 0.5610829467558075,
+          "NDCG@50": 0.6711969398635904,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.590535583465717
+      },
+      {
+        "epoch": 13,
+        "loss": 7.25641752320367,
+        "val": {
+          "Recall@10": 0.6155541276980557,
+          "Recall@50": 0.9032632493277171,
+          "MRR@10": 0.7262255776873467,
+          "MRR@50": 0.728039504556922,
+          "NDCG@10": 0.5653628862840312,
+          "NDCG@50": 0.677166956668787,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5904585069910435
+      },
+      {
+        "epoch": 14,
+        "loss": 7.254306156570847,
+        "val": {
+          "Recall@10": 0.6186371100164204,
+          "Recall@50": 0.9066633349991672,
+          "MRR@10": 0.7130518074296185,
+          "MRR@50": 0.7149024922095624,
+          "NDCG@10": 0.5606655384272657,
+          "NDCG@50": 0.6715438172524583,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5896513242218431
+      },
+      {
+        "epoch": 15,
+        "loss": 7.253098472389015,
+        "val": {
+          "Recall@10": 0.6176203564884225,
+          "Recall@50": 0.902927702815259,
+          "MRR@10": 0.7181468789414817,
+          "MRR@50": 0.7200523066468701,
+          "NDCG@10": 0.5645747867475127,
+          "NDCG@50": 0.6745662782149885,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5910975716179676
+      },
+      {
+        "epoch": 16,
+        "loss": 7.251993983500713,
+        "val": {
+          "Recall@10": 0.6204231217724471,
+          "Recall@50": 0.9028973608433879,
+          "MRR@10": 0.7233948501939506,
+          "MRR@50": 0.7254968894040259,
+          "NDCG@10": 0.5678619400947639,
+          "NDCG@50": 0.6771871449588478,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5941425309336055
+      },
+      {
+        "epoch": 17,
+        "loss": 7.250371335003827,
+        "val": {
+          "Recall@10": 0.6169724661478784,
+          "Recall@50": 0.9008501701530187,
+          "MRR@10": 0.7098653054425168,
+          "MRR@50": 0.7114685593311354,
+          "NDCG@10": 0.558476465392233,
+          "NDCG@50": 0.6683742366189523,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5877244657700557
+      },
+      {
+        "epoch": 18,
+        "loss": 7.249378424721795,
+        "val": {
+          "Recall@10": 0.6153030627543371,
+          "Recall@50": 0.9031632993027295,
+          "MRR@10": 0.7228463149377693,
+          "MRR@50": 0.7245666452520716,
+          "NDCG@10": 0.562213091651492,
+          "NDCG@50": 0.6731625899965368,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5887580772029146
+      },
+      {
+        "epoch": 19,
+        "loss": 7.248533386797519,
+        "val": {
+          "Recall@10": 0.6143505628138312,
+          "Recall@50": 0.901967468646629,
+          "MRR@10": 0.7058357725898955,
+          "MRR@50": 0.7074093281465855,
+          "NDCG@10": 0.5576546164862108,
+          "NDCG@50": 0.668976973277332,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5860025896500209
+      },
+      {
+        "epoch": 20,
+        "loss": 7.247777867961574,
+        "val": {
+          "Recall@10": 0.6113217200923348,
+          "Recall@50": 0.8995948454344257,
+          "MRR@10": 0.7153613669355798,
+          "MRR@50": 0.7173756070609617,
+          "NDCG@10": 0.5588455651403366,
+          "NDCG@50": 0.6707233425074369,
+          "num_conversations_used": 667,
+          "num_conversations_total": 671
+        },
+        "selection_score": 0.5850836426163357
+      }
+    ],
+    "best_score": 0.6031212802642392
+  }
+}
