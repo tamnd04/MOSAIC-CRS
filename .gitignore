@@ -38,6 +38,9 @@ checkpoints/
 # Baseline models (kept local; not pushed)
 baseline_models/
 
+# Generated baseline evaluation outputs
+logs/baseline/
+
 # Notebook checkpoints
 .ipynb_checkpoints/
 
