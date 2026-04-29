@@ -571,7 +571,11 @@ class MOCRSTrainer:
                 traj_dones.append(torch.as_tensor(dones_np.astype(np.float32), dtype=torch.float32, device=self.device))
                 scalar_rewards.append((rewards_np * reward_weights).sum(axis=1).mean())
                 episode_diversity_values.append(rewards_np[:, 1] / max(div_scale, 1e-8))
-                episode_fairness_values.append(rewards_np[:, 2] / max(fair_scale, 1e-8))
+                if fair_scale <= 1e-8:
+                    # Fairness reward is disabled for this ablation, so do not rescale by near-zero.
+                    episode_fairness_values.append(np.zeros_like(rewards_np[:, 2], dtype=np.float32))
+                else:
+                    episode_fairness_values.append(rewards_np[:, 2] / fair_scale)
                 states = next_states
                 episode_length += 1
                 done = bool(dones_np.all())
@@ -936,7 +940,10 @@ class MOCRSTrainer:
         div_scale = float(env_cfg.get('reward_diversity_factor', 1.0))
         fair_scale = float(env_cfg.get('reward_fairness_factor', 1.0))
         diversity_signal = rewards_seq[:, :, 1] / max(div_scale, 1e-6)
-        fairness_signal = rewards_seq[:, :, 2] / max(fair_scale, 1e-6)
+        if fair_scale <= 1e-8:
+            fairness_signal = torch.zeros_like(rewards_seq[:, :, 2])
+        else:
+            fairness_signal = rewards_seq[:, :, 2] / fair_scale
         df_cfg = self.config.get('model', {}).get('diversity_fairness', {})
         min_div = float(df_cfg.get('min_diversity', 0.3))
         min_fair = float(df_cfg.get('min_fairness', 0.7))

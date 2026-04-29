@@ -266,6 +266,60 @@ def _accuracy_only_dfc_forward(self, candidate_items: torch.Tensor,
     }
 
 
+
+def _no_diversity_dfc_forward(self, candidate_items: torch.Tensor,
+                              candidate_scores: torch.Tensor,
+                              user_embedding: torch.Tensor,
+                              recommended_history: List[str] = None,
+                              candidate_ids: List[Any] = None,
+                              user_demographics: Dict = None) -> Dict[str, torch.Tensor]:
+    """Disable diversity and temporal-diversity terms while preserving fairness/exposure.
+
+    This is stronger than setting lambda_mmr=1.0. In the normal DFC, MMR often
+    becomes almost identical to relevance when no recommendation history is
+    available, which can make the no-diversity variant look unchanged. This
+    forward path removes the diversity channel from the score entirely and
+    renormalizes the remaining relevance/fairness/exposure terms.
+    """
+    scores = candidate_scores.squeeze(-1) if candidate_scores.dim() > 1 else candidate_scores
+    num_candidates = int(candidate_items.shape[0])
+    device = candidate_items.device
+    if candidate_ids is None or len(candidate_ids) != num_candidates:
+        candidate_ids = list(range(num_candidates))
+
+    # Keep fairness and exposure active for this ablation.
+    if hasattr(self, 'compute_fairness_scores'):
+        fairness_scores = self.compute_fairness_scores(candidate_items, user_embedding, user_demographics)
+    else:
+        fairness_scores = torch.zeros(num_candidates, dtype=scores.dtype, device=device)
+
+    if hasattr(self, 'exposure_tracker'):
+        exposure_weights = self.exposure_tracker.get_exposure_weights(candidate_ids).to(device)
+    else:
+        exposure_weights = torch.zeros(num_candidates, dtype=scores.dtype, device=device)
+
+    # Renormalized no-diversity score: relevance + fairness/exposure only.
+    combined_scores = 0.70 * scores + 0.20 * fairness_scores + 0.10 * exposure_weights
+
+    top_k = min(int(getattr(self, 'ablation_top_k', 50)), num_candidates)
+    top_scores, top_indices = torch.topk(combined_scores, top_k)
+    selected_item_ids = [candidate_ids[idx] for idx in top_indices.detach().cpu().tolist()]
+    if hasattr(self, 'exposure_tracker'):
+        self.exposure_tracker.update_exposure(selected_item_ids)
+
+    zeros = torch.zeros_like(top_scores)
+    return {
+        'reranked_indices': top_indices,
+        'reranked_scores': top_scores,
+        'relevance_scores': scores[top_indices],
+        'diversity_scores': zeros,
+        'fairness_scores': fairness_scores[top_indices],
+        'exposure_weights': exposure_weights[top_indices],
+        'temporal_penalties': zeros,
+        'popularity_bonus': zeros,
+    }
+
+
 def apply_runtime_ablation(trainer: MOCRSTrainer, variant_name: str, cfg: Dict[str, Any]) -> None:
     """Enforce ablations directly on the constructed modules.
 
@@ -285,15 +339,12 @@ def apply_runtime_ablation(trainer: MOCRSTrainer, variant_name: str, cfg: Dict[s
         return
 
     if mode == 'no_diversity':
-        print("  runtime ablation: diversity disabled (MMR -> relevance only)")
+        print("  runtime ablation: diversity disabled (DFC diversity/temporal channels removed)")
         if hasattr(dfc, 'lambda_mmr'):
             dfc.lambda_mmr = 1.0
-
-        def no_div_mmr(self, candidate_items, candidate_scores, recommended_history=None):
-            return candidate_scores.squeeze(-1) if candidate_scores.dim() > 1 else candidate_scores
-
-        dfc.mmr_rerank = types.MethodType(no_div_mmr, dfc)
-        for attr in ['diversity_weight', 'mmr_weight', 'alpha_diversity']:
+        # Patch the full forward pass so diversity cannot leak through MMR or temporal history.
+        dfc.forward = types.MethodType(_no_diversity_dfc_forward, dfc)
+        for attr in ['diversity_weight', 'mmr_weight', 'alpha_diversity', 'alpha_temporal']:
             if hasattr(dfc, attr):
                 setattr(dfc, attr, 0.0)
         return
@@ -434,8 +485,10 @@ def flatten_metrics(seed_result: Dict[str, Any]) -> Dict[str, float]:
         'Dist-2': _float(conv.get('Dist-2')),
         'Dist-3': _float(conv.get('Dist-3')),
         'ILD@10': _float(div.get('ILD@10')),
+        'GenreCoverage@10': _float(div.get('GenreCoverage@10')),
         'CategoryCoverage@10': _float(div.get('CategoryCoverage@10')),
         'CalibrationError@10': _float(div.get('CalibrationError@10')),
+        'A@10': _float(fair.get('A@10')),
         'G@10': _float(fair.get('G@10')),
         'L@10': _float(fair.get('L@10')),
         'D@10': _float(fair.get('D@10')),
@@ -467,6 +520,42 @@ def aggregate_results(per_seed: List[Dict[str, Any]], valid_only: bool = False) 
         agg[f'{key}_mean'] = float(vals.mean())
         agg[f'{key}_std'] = float(vals.std(ddof=0))
     return agg
+
+
+
+def build_ablation_quality_report(all_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Summarize whether ablation variants are separated and usable."""
+    by_name = {r.get('variant'): r for r in all_results}
+    full = by_name.get('full_model', {})
+    full_agg = full.get('aggregate_all', {}) if isinstance(full, dict) else {}
+    main_metrics = ['Recall@10', 'NDCG@10', 'Success', 'AT', 'D@10', 'HeadShare@10', 'TailShare@10']
+    report: Dict[str, Any] = {
+        'main_metrics': main_metrics,
+        'notes': [],
+        'variant_deltas_vs_full': {},
+    }
+    if not full_agg:
+        report['notes'].append('full_model aggregate unavailable')
+        return report
+
+    for name, result in by_name.items():
+        agg = result.get('aggregate_all', {})
+        deltas = {}
+        identical_count = 0
+        for metric in main_metrics:
+            key = f'{metric}_mean'
+            delta = _float(agg.get(key)) - _float(full_agg.get(key))
+            deltas[metric] = delta
+            if abs(delta) < 1e-12:
+                identical_count += 1
+        report['variant_deltas_vs_full'][name] = deltas
+        if name != 'full_model' and identical_count == len(main_metrics):
+            report['notes'].append(f'{name} is identical to full_model on all main metrics')
+        if result.get('num_collapsed', 0) > 0:
+            report['notes'].append(f'{name} has collapsed seeds: {result.get("collapsed_seeds", [])}')
+    if not report['notes']:
+        report['notes'].append('all variants produced non-identical aggregate metrics and no collapse warnings')
+    return report
 
 
 # -----------------------------
@@ -609,6 +698,7 @@ def main() -> None:
     parser.add_argument('--dataset', type=str, default=None, help='Dataset override, e.g. ReDial or INSPIRED')
     parser.add_argument('--checkpoint', type=str, default='best_model.pt', help='Supervised checkpoint to start every ablation run from')
     parser.add_argument('--episodes', type=int, default=1000)
+    parser.add_argument('--eval_episodes', type=int, default=None, help='Override evaluation rollout episodes used by evaluate_full_test_suite')
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 43, 44])
     parser.add_argument('--output', type=str, default='../logs/ablation_results.json')
     parser.add_argument('--variants', type=str, nargs='*', default=None, help='Optional subset of variants to run')
@@ -620,6 +710,8 @@ def main() -> None:
 
     base_config = resolve_config_paths(base_config, args.config)
     base_config = apply_dataset_paths(base_config, args.dataset)
+    if args.eval_episodes is not None:
+        base_config.setdefault('evaluation', {})['num_eval_episodes'] = int(args.eval_episodes)
 
     dataset = str(base_config.get('data', {}).get('dataset_name', 'dataset'))
     print(f"Dataset: {dataset}")
@@ -680,6 +772,7 @@ def main() -> None:
             'episodes': int(args.episodes),
             'seeds': [int(s) for s in args.seeds],
             'checkpoint': checkpoint_path,
+            'ablation_quality_report': build_ablation_quality_report(all_results),
             'results': all_results,
         }
         with open(output_path, 'w', encoding='utf-8') as f:
