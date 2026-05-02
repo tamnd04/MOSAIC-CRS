@@ -1,18 +1,18 @@
 # MO-CRS: Multi-Objective Conversational Recommender System
 
-MO-CRS is a thesis-oriented conversational recommender prototype that combines three objectives in one RL training pipeline:
+MO-CRS is a thesis-oriented conversational recommender prototype that combines four objectives in one RL training pipeline:
 
+- recommendation accuracy
+- conversational success
 - diversity
 - fairness
-- transparency (explanations)
 
 This repository snapshot is set up to run end-to-end experiments on **ReDial** and **INSPIRED**, including:
 
 - dataset conversion (raw -> MO-CRS JSON + item catalog)
 - supervised pretraining + PPO-based RL fine-tuning
-- test-only evaluation with a unified metric suite (ranking + conversation + diversity + fairness + transparency)
+- test-only evaluation with a unified metric suite (ranking/acuracy + conversation + diversity + fairness + transparency)
 - reproducible ablations (same metric suite for every variant/seed)
-- plotting utilities for thesis-ready figures
 
 ## Repository layout
 
@@ -190,13 +190,13 @@ Use the stable runner in `src/run_experiments.py`. It:
 ReDial example:
 
 ```powershell
-python src/run_experiments.py --config config_redial.yaml --dataset ReDial --checkpoint best_model.pt --episodes 1000 --seeds 42 43 44 --output logs/ReDial_ablation_results.json
+python src/run_experiments.py --config config_redial.yaml --dataset ReDial --checkpoint best_model.pt --episodes 1500 --eval_episodes 300 --seeds 42 43 44 --output logs/ReDial_ablation_results.json
 ```
 
 INSPIRED example:
 
 ```powershell
-python src/run_experiments.py --config config_inspired.yaml --dataset INSPIRED --checkpoint best_model.pt --episodes 1000 --seeds 42 43 44 --output logs/INSPIRED_ablation_results.json
+python src/run_experiments.py --config config_inspired.yaml --dataset INSPIRED --checkpoint best_model.pt --episodes 1500 --eval_episodes 300 --seeds 42 43 44 --output logs/INSPIRED_ablation_results.json
 ```
 
 Variants included:
@@ -210,7 +210,7 @@ Variants included:
 To run only a subset:
 
 ```powershell
-python src/run_experiments.py --config config_redial.yaml --dataset ReDial --variants full_model ablation_no_fairness --output logs/ReDial_ablation_subset.json
+python src/run_experiments.py --config config_redial.yaml --dataset ReDial --episodes 1500 --eval_episodes 300 --seeds 42 43 44 --variants full_model ablation_no_fairness --output logs/ReDial_ablation_subset.json
 ```
 
 ## Plotting
