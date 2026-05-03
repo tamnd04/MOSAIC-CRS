@@ -1,18 +1,28 @@
-# MO-CRS: Multi-Objective Conversational Recommender System
+# MOSAIC-CRS: Multi-Objective System for Adaptive, Inclusive Conversational Recommendation
 
-MO-CRS is a thesis-oriented conversational recommender prototype that combines four objectives in one RL training pipeline:
+**MOSAIC-CRS** is a thesis-oriented conversational recommender system for movie recommendation.
 
-- recommendation accuracy
-- conversational success
-- diversity
-- fairness
+The name **MOSAIC-CRS** stands for:
+
+> **M**ulti-**O**bjective **S**ystem for **A**daptive, **I**nclusive **C**onversational Recommendation
+
+The name reflects the goal of the project: combining several complementary objectives into one conversational recommendation framework. Like a mosaic, the system brings together multiple components and evaluation goals rather than optimizing only one ranking metric.
+
+MOSAIC-CRS focuses on four main objectives:
+
+- **recommendation accuracy**: recommending relevant movies
+- **conversational success**: reaching successful recommendations through dialogue
+- **diversity**: avoiding repetitive or overly narrow recommendation lists
+- **fairness**: reducing popularity bias and improving tail-item exposure
 
 This repository snapshot is set up to run end-to-end experiments on **ReDial** and **INSPIRED**, including:
 
-- dataset conversion (raw -> MO-CRS JSON + item catalog)
+- dataset conversion (raw -> MOSAIC-CRS JSON + item catalog)
 - supervised pretraining + PPO-based RL fine-tuning
-- test-only evaluation with a unified metric suite (ranking/acuracy + conversation + diversity + fairness + transparency)
+- test-only evaluation with a unified metric suite (ranking/accuracy + conversation + diversity + fairness, with auxiliary transparency fields)
 - reproducible ablations (same metric suite for every variant/seed)
+
+> **Implementation note:** some source files, classes, and historical logs may still use the older internal name `MO-CRS` or `MOCRS`. In the thesis/reporting text, the model is referred to as **MOSAIC-CRS**.
 
 ## Repository layout
 
@@ -36,6 +46,17 @@ This repository snapshot is set up to run end-to-end experiments on **ReDial** a
 ├── checkpoints/
 └── logs/
 ```
+
+## Thesis focus
+
+The main thesis focus is not only offline recommendation ranking. MOSAIC-CRS is evaluated as a multi-objective conversational recommender system using:
+
+1. **Recommendation results**: Recall, MRR, and NDCG.
+2. **Conversation results**: success rate, success within top-K/turn constraints, average turns, and linguistic diversity.
+3. **Diversity results**: intra-list diversity, genre/category coverage, and calibration error.
+4. **Fairness results**: average popularity, Gini coefficient, KL divergence, tail/head exposure difference, and entropy.
+
+Explanation generation exists as a supporting component, but it is not treated as the primary thesis contribution.
 
 ## Setup
 
@@ -176,7 +197,7 @@ The test evaluation JSON includes:
 - Conversation quality: Dist-2/3, BLEU-2/3, SR@{5,10,20}, AT
 - Diversity: ILD@{5,10,20}, genre/category coverage, calibration error
 - Fairness (exposure distribution): A@{5,10,20}, Gini (G), KL-to-uniform (L), tail-head difference (D), normalized entropy
-- Transparency proxies: groundedness/factual consistency, hallucination proxy, persuasiveness, transparency, trust, usefulness
+- Auxiliary transparency proxies: groundedness/factual consistency, hallucination proxy, persuasiveness, transparency, trust, usefulness
 
 ## Ablations
 
