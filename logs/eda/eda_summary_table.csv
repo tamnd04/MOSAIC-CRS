@@ -1,0 +1,3 @@
+Dataset,Train,Val,Test,Total Dialogues,Avg. Turns,Median Turns,Success Rate,Avg. Mentions,Unique Mentioned Items,Catalog Items,Genres,Categories,Avg. Item Mentions,Median Item Mentions,Max Item Mentions,Head Items,Mid Items,Tail Items
+ReDial,10005,671,671,11347,18.15,17,0.995,5.29,6636,6924,25,19,11.57,2,1024,1457,2937,2530
+INSPIRED,801,99,99,999,35.72,35,0.865,3.71,1608,1846,25,19,94.51,48,2491,374,563,909

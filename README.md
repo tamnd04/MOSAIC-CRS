@@ -22,8 +22,6 @@ This repository snapshot is set up to run end-to-end experiments on **ReDial** a
 - test-only evaluation with a unified metric suite (ranking/accuracy + conversation + diversity + fairness, with auxiliary transparency fields)
 - reproducible ablations (same metric suite for every variant/seed)
 
-> **Implementation note:** some source files, classes, and historical logs may still use the older internal name `MO-CRS` or `MOCRS`. In the thesis/reporting text, the model is referred to as **MOSAIC-CRS**.
-
 ## Repository layout
 
 ```text
