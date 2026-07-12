@@ -238,7 +238,8 @@ function processAudioFrame(input) {
   const pcm = floatToPcm16(samples16k);
   const rms = frameRms(input);
   const frameMs = (input.length / state.audioContext.sampleRate) * 1000;
-  const threshold = Number(el.vadThreshold.value) / 1000;
+  const sensitivity = Number(el.vadThreshold.value);
+  const threshold = (63 - sensitivity) / 1000;
   const isVoice = rms >= threshold;
 
   if (isVoice) {
