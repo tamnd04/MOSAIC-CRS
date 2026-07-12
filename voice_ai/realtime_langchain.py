@@ -29,16 +29,19 @@ class RecommendationInput(BaseModel):
 
 _SYSTEM_PROMPT = """
 You are the concise voice interface for MOSAIC-CRS, a ReDial movie recommender.
-Use only the supplied MOSAIC tool result as factual grounding. Never invent titles,
-genres, years, ratings, rankings, or reasons. Speak naturally in the user's language.
-Keep the answer suitable for speech and normally under 90 words.
+Use only the supplied tool result as factual grounding. Never invent titles, genres,
+years, ratings, plots, cast members, rankings, or reasons. Speak naturally and keep
+answers suitable for speech.
 
 Rules:
-- If policy_action is recommend, mention at most five supplied recommendations.
-- If policy_action is ask_preference or clarify, ask one brief useful question.
-- Do not read JSON keys, confidence scores, or implementation details aloud.
-- If titles are placeholders such as "Movie 123", clearly say that the original
-  ReDial item catalog is needed for readable titles.
+- Use each movie title exactly as supplied.
+- Only call a movie a genre when that genre is explicitly present in its metadata.
+- Never claim that a recommendation satisfies a content restriction unless the tool
+  result marks that restriction as verified.
+- Count the actual returned recommendations instead of assuming there are five.
+- If fewer matches are returned than requested, say so plainly.
+- Do not mention catalogs, placeholders, datasets, checkpoints, tools, JSON, or
+  implementation details.
 - Never claim to be human.
 """.strip()
 
@@ -127,28 +130,63 @@ class MosaicRealtimeToolChain:
         return "\n".join(rows) or "No earlier turns."
 
     @staticmethod
-    def _fallback_response(result: Dict[str, Any]) -> str:
+    def _join_titles(titles: List[str]) -> str:
+        if not titles:
+            return ""
+        if len(titles) == 1:
+            return titles[0]
+        if len(titles) == 2:
+            return f"{titles[0]} and {titles[1]}"
+        return ", ".join(titles[:-1]) + f", and {titles[-1]}"
+
+    @classmethod
+    def _fallback_response(cls, result: Dict[str, Any]) -> str:
         action = str(result.get("policy_action", "recommend"))
         recommendations = result.get("recommendations") or []
-        explanation = str(result.get("model_explanation", "")).strip()
+        constraints = result.get("constraints") or {}
 
         if action == "end":
             return "Glad I could help. You can start a new session whenever you want another movie."
         if action == "ask_preference":
             return "What movie genres do you enjoy, and is there anything you want me to avoid?"
-        if action == "clarify":
-            return "Could you name one movie or genre you like and one you do not want?"
-        if not recommendations:
-            return "I need a little more information. What kind of movie are you in the mood for?"
 
-        titles = [str(item.get("title") or item.get("item_id")) for item in recommendations[:5]]
-        if len(titles) == 1:
-            lead = f"My recommendation is {titles[0]}."
+        required = [str(value) for value in constraints.get("required_genres") or []]
+        excluded = [str(value) for value in constraints.get("excluded_genres") or []]
+        unverified = [str(value) for value in constraints.get("unverified_content_avoidances") or []]
+        requested_count = int(constraints.get("requested_count") or 5)
+
+        if not recommendations:
+            parts = ["I could not find a catalog title that strictly matches the current request."]
+            if required:
+                parts.append(f"Required genres: {cls._join_titles(required)}.")
+            if excluded:
+                parts.append(f"Excluded genres: {cls._join_titles(excluded)}.")
+            parts.append("Try removing one constraint or naming a movie you already like.")
+            return " ".join(parts)
+
+        titles = [str(item.get("title") or item.get("item_id")) for item in recommendations]
+        count = len(titles)
+        if required:
+            genre_text = cls._join_titles(required)
+            if count < requested_count:
+                lead = f"I found {count} strict {genre_text} match{'es' if count != 1 else ''}: "
+            else:
+                lead = f"Here are {count} {genre_text} recommendation{'s' if count != 1 else ''}: "
         else:
-            lead = "My recommendations are " + ", ".join(titles[:-1]) + f", and {titles[-1]}."
-        if explanation:
-            return f"{lead} {explanation}".strip()
-        return lead
+            if count < requested_count:
+                lead = f"I found {count} matching recommendation{'s' if count != 1 else ''}: "
+            else:
+                lead = f"Here are {count} recommendation{'s' if count != 1 else ''}: "
+
+        response = lead + cls._join_titles(titles) + "."
+        if excluded:
+            response += f" I excluded titles tagged as {cls._join_titles(excluded)}."
+        if unverified:
+            response += (
+                " The catalog does not provide reliable content-warning data for "
+                f"{cls._join_titles(unverified)}, so I cannot verify that part."
+            )
+        return response
 
     async def astream_response(
         self,
@@ -158,6 +196,13 @@ class MosaicRealtimeToolChain:
     ) -> AsyncIterator[str]:
         """Yield response text chunks after invoking the local MOSAIC tool."""
         result = await asyncio.to_thread(self.invoke, query, session_id)
+
+        # Recommendation wording is deterministic on purpose. This prevents a local
+        # LLM from relabelling unrelated titles as the requested genre or inventing
+        # unsupported content-safety claims.
+        if result.get("request_type") == "recommendation":
+            yield self._fallback_response(result)
+            return
 
         if self.llm_chain is None:
             yield self._fallback_response(result)

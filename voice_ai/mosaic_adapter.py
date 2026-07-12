@@ -23,9 +23,84 @@ from .runtime_catalog import ensure_catalog
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _NEGATIVE_PREFIX_RE = re.compile(
-    r"(?:\bnot\b|\bno\b|\bavoid\b|\bhate\b|\bdislike\b|\bdon t like\b|\bdon't like\b|\bdo not like\b)\s*$",
+    r"(?:\bnot\b|\bno\b|\bavoid\b|\bhate\b|\bdislike\b|\bdon t like\b|\bdon't like\b|\bdo not like\b)(?:\s+[a-z0-9]+){0,5}\s*$",
     re.IGNORECASE,
 )
+
+_RECOMMENDATION_REQUEST_RE = re.compile(
+    r"\b(?:recommend|suggest|find|show|give|looking for|in the mood for|want)\b",
+    re.IGNORECASE,
+)
+_REFINEMENT_RE = re.compile(
+    r"\b(?:prefer|instead|rather|something|make it|also|more|lighter|funnier)\b",
+    re.IGNORECASE,
+)
+_REPLACEMENT_RE = re.compile(
+    r"\b(?:actually|instead|forget|rather than|change my mind|not that)\b",
+    re.IGNORECASE,
+)
+_ANY_MOVIE_RE = re.compile(r"\b(?:any movie|anything|any genre|surprise me)\b", re.IGNORECASE)
+
+_CATEGORY_ALIASES: Dict[str, Sequence[str]] = {
+    "science fiction": ("science fiction", "sci fi", "scifi"),
+    "comedy": ("comedy", "comedies", "funny", "humorous"),
+    "drama": ("drama", "dramas", "dramatic"),
+    "romance": ("romance", "romantic", "love story", "love stories"),
+    "horror": ("horror", "scary"),
+    "thriller": ("thriller", "thrillers", "suspense", "suspenseful"),
+    "action": ("action",),
+    "adventure": ("adventure", "adventures"),
+    "animation": ("animation", "animated", "cartoon", "cartoons"),
+    "fantasy": ("fantasy",),
+    "musical": ("musical", "musicals"),
+    "crime": ("crime", "criminal"),
+    "mystery": ("mystery", "mysterious"),
+    "documentary": ("documentary", "documentaries"),
+    "western": ("western", "westerns"),
+    "family": ("family", "family friendly"),
+    "war": ("war",),
+    "history": ("history", "historical"),
+}
+
+_CATEGORY_DISPLAY = {
+    "science fiction": "Science Fiction",
+    "comedy": "Comedy",
+    "drama": "Drama",
+    "romance": "Romance",
+    "horror": "Horror",
+    "thriller": "Thriller",
+    "action": "Action",
+    "adventure": "Adventure",
+    "animation": "Animation",
+    "fantasy": "Fantasy",
+    "musical": "Musical",
+    "crime": "Crime",
+    "mystery": "Mystery",
+    "documentary": "Documentary",
+    "western": "Western",
+    "family": "Family",
+    "war": "War",
+    "history": "History",
+}
+
+_CONTENT_AVOIDANCE_ALIASES: Dict[str, Sequence[str]] = {
+    "gore": ("gore", "gory", "graphic violence"),
+    "violence": ("violence", "violent"),
+    "sad ending": ("sad ending", "tragic ending"),
+}
+
+_NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
 
 
 def _normalise(value: Any) -> str:
@@ -43,13 +118,46 @@ def _split_values(value: Any) -> List[str]:
     return [part.strip() for part in re.split(r"[|,;/]", str(value)) if part.strip()]
 
 
+def _canonical_category(value: Any) -> str:
+    normalised = _normalise(value)
+    for canonical, aliases in _CATEGORY_ALIASES.items():
+        if normalised == canonical or normalised in aliases:
+            return canonical
+    return normalised
+
+
+def _canonical_categories(value: Any) -> Set[str]:
+    """Return every known genre represented by one catalog value.
+
+    This handles compound labels such as ``Romantic Comedy`` or ``Historical Drama``
+    without treating them as an unknown single genre.
+    """
+    normalised = _normalise(value)
+    if not normalised:
+        return set()
+    matches: Set[str] = set()
+    for canonical, aliases in _CATEGORY_ALIASES.items():
+        for alias in set(aliases) | {canonical}:
+            if re.search(rf"\b{re.escape(alias)}\b", normalised):
+                matches.add(canonical)
+                break
+    return matches or {normalised}
+
+
+def _display_category(value: str) -> str:
+    return _CATEGORY_DISPLAY.get(value, value.replace("_", " ").title())
+
+
 @dataclass
 class ConversationSession:
     history: List[Dict[str, str]] = field(default_factory=list)
     preferred_item_ids: List[str] = field(default_factory=list)
+    mentioned_item_ids: Set[str] = field(default_factory=set)
     disliked_item_ids: Set[str] = field(default_factory=set)
     preferred_categories: Set[str] = field(default_factory=set)
     disliked_categories: Set[str] = field(default_factory=set)
+    active_required_categories: Set[str] = field(default_factory=set)
+    content_avoidances: Set[str] = field(default_factory=set)
     turn: int = 0
 
 
@@ -288,11 +396,9 @@ class MosaicRecommendationAdapter:
                 category_values = ["Unknown"]
 
             for category in category_values:
-                category_norm = _normalise(category)
-                if not category_norm:
-                    continue
-                self._category_to_ids.setdefault(category_norm, []).append(item_id)
-                self._category_display.setdefault(category_norm, category)
+                for category_norm in _canonical_categories(category):
+                    self._category_to_ids.setdefault(category_norm, []).append(item_id)
+                    self._category_display.setdefault(category_norm, _display_category(category_norm))
 
             popularity = float(item.get("mentions", item.get("popularity", 0.0)) or 0.0)
             self._popularity_by_id[item_id] = popularity
@@ -338,24 +444,88 @@ class MosaicRecommendationAdapter:
         prefix = text[max(0, start_index - 40) : start_index]
         return bool(_NEGATIVE_PREFIX_RE.search(prefix))
 
-    def _extract_preferences(self, session: ConversationSession, query: str) -> None:
-        text = _normalise(query)
-        if not text:
-            return
-
-        # Genre/category extraction from the actual catalog taxonomy.
-        for category_norm in self._category_to_ids:
-            if len(category_norm) < 3:
-                continue
-            match = re.search(rf"\b{re.escape(category_norm)}\b", text)
+    @staticmethod
+    def _extract_requested_count(text: str, default: int) -> int:
+        patterns = (
+            r"\b(?:recommend|suggest|give|show|find)(?:\s+me)?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
+            r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:movies?|recommendations?)\b",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text)
             if not match:
                 continue
-            if self._is_negated(text, match.start()):
-                session.disliked_categories.add(category_norm)
-                session.preferred_categories.discard(category_norm)
-            else:
-                session.preferred_categories.add(category_norm)
-                session.disliked_categories.discard(category_norm)
+            raw = match.group(1)
+            value = int(raw) if raw.isdigit() else _NUMBER_WORDS.get(raw, default)
+            return max(1, min(int(value), 10))
+        return default
+
+    def _extract_query_signals(self, query: str) -> Dict[str, Any]:
+        text = _normalise(query)
+        positive: Set[str] = set()
+        negative: Set[str] = set()
+        content_avoidances: Set[str] = set()
+
+        for canonical, aliases in _CATEGORY_ALIASES.items():
+            for alias in sorted(set(aliases) | {canonical}, key=len, reverse=True):
+                match = re.search(rf"\b{re.escape(alias)}\b", text)
+                if not match:
+                    continue
+                if self._is_negated(text, match.start()):
+                    negative.add(canonical)
+                else:
+                    positive.add(canonical)
+                break
+
+        for canonical, aliases in _CONTENT_AVOIDANCE_ALIASES.items():
+            for alias in sorted(set(aliases) | {canonical}, key=len, reverse=True):
+                match = re.search(rf"\b{re.escape(alias)}\b", text)
+                if match and self._is_negated(text, match.start()):
+                    content_avoidances.add(canonical)
+                    break
+
+        return {
+            "text": text,
+            "positive_categories": positive,
+            "negative_categories": negative,
+            "content_avoidances": content_avoidances,
+            "explicit_recommendation": bool(_RECOMMENDATION_REQUEST_RE.search(text)),
+            "is_refinement": bool(_REFINEMENT_RE.search(text)),
+            "is_replacement": bool(_REPLACEMENT_RE.search(text)),
+            "requests_any_movie": bool(_ANY_MOVIE_RE.search(text)),
+            "requested_count": self._extract_requested_count(text, self.top_k),
+        }
+
+    def _extract_preferences(self, session: ConversationSession, query: str) -> Dict[str, Any]:
+        signals = self._extract_query_signals(query)
+        text = signals["text"]
+        if not text:
+            return signals
+
+        positive = set(signals["positive_categories"])
+        negative = set(signals["negative_categories"])
+
+        for category in negative:
+            session.disliked_categories.add(category)
+            session.preferred_categories.discard(category)
+            session.active_required_categories.discard(category)
+
+        for category in positive:
+            if category not in negative:
+                session.preferred_categories.add(category)
+                session.disliked_categories.discard(category)
+
+        if signals["explicit_recommendation"] and signals["requests_any_movie"]:
+            session.active_required_categories.clear()
+        elif signals["explicit_recommendation"] and positive:
+            # A direct recommendation request starts a new hard-constraint set.
+            session.active_required_categories = positive - negative
+        elif positive and signals["is_refinement"] and session.active_required_categories:
+            # Follow-ups such as "something light and funny" refine the current request.
+            session.active_required_categories.update(positive - negative)
+        elif positive and signals["is_replacement"]:
+            session.active_required_categories = positive - negative
+
+        session.content_avoidances.update(signals["content_avoidances"])
 
         # Exact title phrase matches. This is deliberately conservative to avoid
         # treating common words as movie titles.
@@ -363,6 +533,7 @@ class MosaicRecommendationAdapter:
             if len(title_norm) < 4 or title_norm not in text:
                 continue
             start = text.find(title_norm)
+            session.mentioned_item_ids.add(item_id)
             if self._is_negated(text, start):
                 session.disliked_item_ids.add(item_id)
                 session.preferred_item_ids = [x for x in session.preferred_item_ids if x != item_id]
@@ -370,19 +541,50 @@ class MosaicRecommendationAdapter:
                 session.preferred_item_ids.append(item_id)
 
         session.preferred_item_ids = session.preferred_item_ids[-30:]
+        signals["active_required_categories"] = set(session.active_required_categories)
+        return signals
 
     def _item_categories(self, item_id: str) -> Set[str]:
         item = self._item_by_id.get(item_id, {})
         categories: Set[str] = set()
         for key in ("category", "categories", "genre", "genres"):
-            categories.update(_normalise(value) for value in _split_values(item.get(key)) if _normalise(value))
+            for value in _split_values(item.get(key)):
+                categories.update(_canonical_categories(value))
         return categories
+
+    def _item_metadata_text(self, item_id: str) -> str:
+        item = self._item_by_id.get(item_id, {})
+        values: List[str] = []
+        for key in (
+            "category", "categories", "genre", "genres", "keywords", "tags",
+            "content_warnings", "description", "overview", "plot", "synopsis", "summary",
+        ):
+            values.extend(_split_values(item.get(key)))
+        return _normalise(" ".join(values))
+
+    def _contains_avoided_content(self, session: ConversationSession, item_id: str) -> bool:
+        metadata_text = self._item_metadata_text(item_id)
+        if not metadata_text:
+            return False
+        for avoidance in session.content_avoidances:
+            aliases = set(_CONTENT_AVOIDANCE_ALIASES.get(avoidance, ())) | {avoidance}
+            if any(re.search(rf"\b{re.escape(alias)}\b", metadata_text) for alias in aliases):
+                return True
+        return False
+
+    def _matches_required_categories(self, session: ConversationSession, item_id: str) -> bool:
+        if not session.active_required_categories:
+            return True
+        categories = self._item_categories(item_id)
+        return session.active_required_categories.issubset(categories)
 
     def _allowed_item(self, session: ConversationSession, item_id: str) -> bool:
         if item_id in session.disliked_item_ids:
             return False
         categories = self._item_categories(item_id)
-        return not bool(categories.intersection(session.disliked_categories))
+        if categories.intersection(session.disliked_categories):
+            return False
+        return not self._contains_avoided_content(session, item_id)
 
     def _seeded_rng(self, session_id: str, turn: int) -> random.Random:
         digest = hashlib.sha256(f"{session_id}:{turn}".encode("utf-8")).hexdigest()
@@ -405,6 +607,28 @@ class MosaicRecommendationAdapter:
                 seen.add(item_id)
                 selected.append(item_id)
 
+        if session.active_required_categories:
+            strict_pool = [
+                item_id
+                for item_id in self._item_ids
+                if self._allowed_item(session, item_id)
+                and self._matches_required_categories(session, item_id)
+                and item_id not in session.mentioned_item_ids
+            ]
+            strict_pool.sort(
+                key=lambda item_id: (
+                    item_id in self._head_items,
+                    -self._popularity_by_id.get(item_id, 0.0),
+                    item_id,
+                )
+            )
+            for item_id in strict_pool:
+                add(item_id)
+                if len(selected) >= target:
+                    break
+
+        # Soft-preference items are only used to fill the model candidate tensor.
+        # Final results are filtered again, so non-matching items cannot leak into replies.
         for item_id in session.preferred_item_ids:
             add(item_id)
 
@@ -485,7 +709,7 @@ class MosaicRecommendationAdapter:
         session = self._get_session(session_id)
         previous_history = list(session.history)
         session.turn += 1
-        self._extract_preferences(session, query)
+        query_signals = self._extract_preferences(session, query)
         candidate_ids = self._select_candidates(session_id, session)
 
         assert self.item_catalog is not None
@@ -547,49 +771,93 @@ class MosaicRecommendationAdapter:
         reranked = outputs.get("reranked_indices")
         reranked_scores = outputs.get("reranked_scores")
         if reranked is None:
-            positions = list(range(min(self.top_k, len(candidate_ids))))
+            positions = list(range(len(candidate_ids)))
         else:
-            positions = [int(index) for index in reranked[0, : self.top_k].detach().cpu().tolist()]
+            raw_positions = [int(index) for index in reranked[0].detach().cpu().tolist()]
+            positions = []
+            seen_positions: Set[int] = set()
+            for position in raw_positions + list(range(len(candidate_ids))):
+                if 0 <= position < len(candidate_ids) and position not in seen_positions:
+                    seen_positions.add(position)
+                    positions.append(position)
 
+        requested_limit = min(int(query_signals.get("requested_count", self.top_k)), self.top_k)
         recommendations: List[Dict[str, Any]] = []
-        for rank, position in enumerate(positions, start=1):
-            if position < 0 or position >= len(candidate_ids):
-                continue
+        filtered_out = 0
+        for rerank_order, position in enumerate(positions):
             item_id = candidate_ids[position]
+            if item_id in session.mentioned_item_ids:
+                filtered_out += 1
+                continue
+            if not self._allowed_item(session, item_id):
+                filtered_out += 1
+                continue
+            if not self._matches_required_categories(session, item_id):
+                filtered_out += 1
+                continue
+
             item = self._item_by_id.get(item_id, {})
+            item_categories = self._item_categories(item_id)
             score = None
-            if reranked_scores is not None and rank - 1 < reranked_scores.shape[1]:
-                score = float(reranked_scores[0, rank - 1].item())
+            if reranked_scores is not None and rerank_order < reranked_scores.shape[1]:
+                score = float(reranked_scores[0, rerank_order].item())
             recommendations.append(
                 {
-                    "rank": rank,
+                    "rank": len(recommendations) + 1,
                     "item_id": item_id,
                     "title": str(item.get("title", item.get("name", item_id))),
                     "category": str(item.get("category", "Unknown")),
-                    "genres": _split_values(item.get("genres", item.get("genre", []))),
+                    "genres": _split_values(item.get("genres", item.get("genre", item.get("category", [])))),
+                    "canonical_genres": sorted(item_categories),
                     "year": item.get("year", ""),
                     "rating": item.get("rating", ""),
                     "score": score,
+                    "constraint_match": True,
                 }
             )
+            if len(recommendations) >= requested_limit:
+                break
 
         explanations = outputs.get("explanations") or []
         explanation = str(explanations[0]).strip() if explanations else ""
         session.history.append({"role": "user", "content": query})
         session.history = session.history[-(self.history_turns * 2) :]
 
+        strict_candidate_count = sum(
+            1
+            for item_id in candidate_ids
+            if item_id not in session.mentioned_item_ids
+            and self._allowed_item(session, item_id)
+            and self._matches_required_categories(session, item_id)
+        )
+        required_display = [_display_category(value) for value in sorted(session.active_required_categories)]
+        avoided_display = [_display_category(value) for value in sorted(session.disliked_categories)]
+        effective_action = self.ACTION_NAMES.get(action_id, "unknown")
+        if query_signals.get("explicit_recommendation"):
+            effective_action = "recommend" if recommendations else "clarify"
+
         return {
-            "policy_action": self.ACTION_NAMES.get(action_id, "unknown"),
+            "request_type": "recommendation",
+            "policy_action": effective_action,
             "policy_action_probability": action_probability,
             "recommendations": recommendations,
+            # The model explanation is retained for diagnostics, but the voice layer
+            # does not repeat it because it may overstate genre/content matches.
             "model_explanation": explanation,
+            "constraints": {
+                "required_genres": required_display,
+                "excluded_genres": avoided_display,
+                "unverified_content_avoidances": sorted(session.content_avoidances),
+                "strict_filter_applied": bool(session.active_required_categories or session.disliked_categories),
+                "requested_count": requested_limit,
+                "matching_candidates_in_model_pool": strict_candidate_count,
+                "returned_count": len(recommendations),
+                "filtered_out_count": filtered_out,
+            },
             "preferences_detected": {
                 "titles": preferred_titles,
                 "categories": preferred_categories,
-                "avoided_categories": [
-                    self._category_display.get(category, category)
-                    for category in sorted(session.disliked_categories)
-                ],
+                "avoided_categories": avoided_display,
             },
             "dataset": self.config.get("data", {}).get("dataset_name", self.dataset),
             "turn": session.turn,
