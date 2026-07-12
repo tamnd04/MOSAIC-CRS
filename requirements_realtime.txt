@@ -1,0 +1,10 @@
+# API-key-free realtime voice additions.
+# Keep your project's existing torch/numpy/PyYAML dependencies installed.
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+python-dotenv>=1.0,<2.0
+langchain>=1.0,<2.0
+langchain-core>=1.0,<2.0
+langchain-ollama>=1.0,<2.0
+faster-whisper>=1.1,<2.0
+numpy>=1.26,<3.0

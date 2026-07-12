@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MOSAIC-CRS Local Voice</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">MOSAIC-CRS · ReDial · Local</p>
+        <h1>Free local movie recommendation call</h1>
+        <p class="subtitle">No OpenAI key. Your microphone is streamed to your own FastAPI server, transcribed locally, and answered with your MOSAIC checkpoint.</p>
+      </div>
+      <div id="connectionBadge" class="badge offline"><span></span><b>Offline</b></div>
+    </section>
+
+    <section class="call-card">
+      <div class="orb-wrap">
+        <div id="voiceOrb" class="voice-orb"><div class="orb-core">M</div></div>
+        <p id="callStatus" class="call-status">Ready to start</p>
+        <p id="callHint" class="call-hint">Speech output uses a voice installed in your browser or Windows.</p>
+      </div>
+
+      <div class="controls">
+        <button id="startButton" class="button primary">Start call</button>
+        <button id="muteButton" class="button secondary" disabled>Mute</button>
+        <button id="endButton" class="button danger" disabled>End call</button>
+        <button id="resetButton" class="button ghost">New session</button>
+      </div>
+
+      <div class="local-settings">
+        <label for="voiceSelect">Playback voice</label>
+        <select id="voiceSelect"><option value="">Browser default</option></select>
+        <label for="vadThreshold">Mic sensitivity</label>
+        <input id="vadThreshold" type="range" min="8" max="55" value="20" />
+      </div>
+    </section>
+
+    <section class="conversation-card">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Live transcript</p>
+          <h2>Conversation</h2>
+        </div>
+        <button id="clearTranscriptButton" class="text-button">Clear transcript</button>
+      </div>
+      <div id="messages" class="messages" aria-live="polite">
+        <div class="empty-state">Start a call, then ask for a movie recommendation.</div>
+      </div>
+      <form id="textForm" class="composer">
+        <input id="textInput" type="text" autocomplete="off" placeholder="Type during the call…" disabled />
+        <button id="sendTextButton" type="submit" disabled>Send</button>
+      </form>
+    </section>
+
+    <section class="diagnostics">
+      <details>
+        <summary>Local runtime details</summary>
+        <pre id="runtimeDetails">Loading…</pre>
+      </details>
+    </section>
+  </main>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
